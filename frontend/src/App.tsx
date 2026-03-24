@@ -1,8 +1,16 @@
 import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { CSSProperties, FormEvent } from 'react';
 import './App.css';
 import Dashboard from './Dashboard';
-import { authContent, brandContent, routeOrder, type AuthVariant, type Route } from './content';
+import {
+  authContent,
+  brandContent,
+  isAuthRoute,
+  routeOrder,
+  type AuthVariant,
+  type Route,
+  type WorkspaceRoute,
+} from './content';
 
 const validRoutes = new Set<Route>(routeOrder);
 const routeIndex = Object.fromEntries(routeOrder.map((route, index) => [route, index])) as Record<Route, number>;
@@ -69,52 +77,55 @@ function App() {
     };
   }, []);
 
-  const transitionToRoute = useCallback((nextRoute: Route) => {
-    transitionTimers.current.forEach((timerId) => {
-      window.clearTimeout(timerId);
-    });
-    transitionTimers.current = [];
+  const transitionToRoute = useCallback(
+    (nextRoute: Route) => {
+      transitionTimers.current.forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      transitionTimers.current = [];
 
-    const currentRoute = displayRouteRef.current;
+      const currentRoute = displayRouteRef.current;
 
-    if (nextRoute === currentRoute) {
-      setTransitionState('idle');
-      return;
-    }
-
-    setTransitionDirection(routeIndex[nextRoute] >= routeIndex[currentRoute] ? 'forward' : 'backward');
-
-    if (prefersReducedMotion) {
-      displayRouteRef.current = nextRoute;
-      startTransition(() => {
-        setDisplayRoute(nextRoute);
+      if (nextRoute === currentRoute) {
         setTransitionState('idle');
-      });
-      return;
-    }
+        return;
+      }
 
-    startTransition(() => {
-      setTransitionState('exiting');
-    });
+      setTransitionDirection(routeIndex[nextRoute] >= routeIndex[currentRoute] ? 'forward' : 'backward');
 
-    const exitTimer = window.setTimeout(() => {
-      displayRouteRef.current = nextRoute;
-      startTransition(() => {
-        setDisplayRoute(nextRoute);
-        setTransitionState('entering');
-      });
-
-      const enterTimer = window.setTimeout(() => {
+      if (prefersReducedMotion) {
+        displayRouteRef.current = nextRoute;
         startTransition(() => {
+          setDisplayRoute(nextRoute);
           setTransitionState('idle');
         });
-      }, 24);
+        return;
+      }
 
-      transitionTimers.current.push(enterTimer);
-    }, transitionDurationMs);
+      startTransition(() => {
+        setTransitionState('exiting');
+      });
 
-    transitionTimers.current.push(exitTimer);
-  }, [prefersReducedMotion]);
+      const exitTimer = window.setTimeout(() => {
+        displayRouteRef.current = nextRoute;
+        startTransition(() => {
+          setDisplayRoute(nextRoute);
+          setTransitionState('entering');
+        });
+
+        const enterTimer = window.setTimeout(() => {
+          startTransition(() => {
+            setTransitionState('idle');
+          });
+        }, 24);
+
+        transitionTimers.current.push(enterTimer);
+      }, transitionDurationMs);
+
+      transitionTimers.current.push(exitTimer);
+    },
+    [prefersReducedMotion],
+  );
 
   useEffect(() => {
     const syncRoute = () => {
@@ -149,10 +160,10 @@ function App() {
   return (
     <div className={`app-shell app-shell--${displayRoute}`}>
       <div className={`screen-frame screen-frame--${transitionState} screen-frame--${transitionDirection}`}>
-        {displayRoute === 'dashboard' ? (
-          <Dashboard onNavigate={navigate} />
-        ) : (
+        {isAuthRoute(displayRoute) ? (
           <AuthPage variant={displayRoute} onNavigate={navigate} />
+        ) : (
+          <Dashboard route={displayRoute as WorkspaceRoute} onNavigate={navigate} />
         )}
       </div>
     </div>
@@ -167,6 +178,11 @@ type AuthPageProps = {
 function AuthPage({ variant, onNavigate }: AuthPageProps) {
   const content = authContent[variant];
 
+  const visualStyle = {
+    backgroundImage: `linear-gradient(180deg, rgba(4, 10, 15, 0.28), rgba(4, 10, 15, 0.78)), url(${content.image})`,
+    backgroundPosition: content.imagePosition,
+  } satisfies CSSProperties;
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     onNavigate('dashboard');
@@ -174,9 +190,9 @@ function AuthPage({ variant, onNavigate }: AuthPageProps) {
 
   return (
     <main className={`auth-screen auth-screen--${variant}`}>
-      <section className="auth-hero" aria-label={`${brandContent.name} overview`}>
-        <div className="auth-hero__surface">
-          <header className="auth-hero__header">
+      <section className="auth-visual" style={visualStyle}>
+        <div className="auth-visual__content">
+          <header className="auth-visual__header">
             <div className="brand-lockup">
               <div className="brand-mark" aria-hidden="true">
                 {brandContent.mark}
@@ -186,35 +202,12 @@ function AuthPage({ variant, onNavigate }: AuthPageProps) {
                 <p className="brand-caption">{brandContent.caption}</p>
               </div>
             </div>
-
-            <p className="utility-label">{brandContent.workspaceLabel}</p>
           </header>
 
-          <div className="auth-hero__body">
+          <div className="auth-visual__copy">
             <p className="section-kicker">{content.eyebrow}</p>
             <h1 className="page-title">{content.title}</h1>
             <p className="page-description">{content.description}</p>
-          </div>
-
-          <div className="auth-hero__footer">
-            <div className="auth-support">
-              {content.supportItems.map((item) => (
-                <div className="support-item" key={item.title}>
-                  <p className="support-item__title">{item.title}</p>
-                  <p className="support-item__copy">{item.description}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="auth-signal-strip" aria-label={content.signalLabel}>
-              {content.signalStrip.map((signal) => (
-                <div className="auth-signal" key={signal.label}>
-                  <span className="auth-signal__label">{signal.label}</span>
-                  <strong className="auth-signal__value">{signal.value}</strong>
-                  <p className="auth-signal__detail">{signal.detail}</p>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
       </section>
@@ -228,7 +221,7 @@ function AuthPage({ variant, onNavigate }: AuthPageProps) {
               aria-current={variant === 'login' ? 'page' : undefined}
               onClick={() => onNavigate('login')}
             >
-              Sign in
+              Login
             </button>
             <button
               className={`panel-nav__link ${variant === 'register' ? 'is-active' : ''}`}
@@ -237,9 +230,6 @@ function AuthPage({ variant, onNavigate }: AuthPageProps) {
               onClick={() => onNavigate('register')}
             >
               Register
-            </button>
-            <button className="panel-nav__link panel-nav__link--muted" type="button" onClick={() => onNavigate('dashboard')}>
-              Dashboard
             </button>
           </nav>
 

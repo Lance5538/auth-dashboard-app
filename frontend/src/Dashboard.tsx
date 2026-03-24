@@ -1,7 +1,17 @@
 import { useEffect, useState } from 'react';
-import { brandContent, dashboardContent, type Route } from './content';
+import {
+  brandContent,
+  getWorkspacePage,
+  workspaceFooterLinks,
+  workspaceNavigation,
+  type DashboardPage,
+  type ModulePage,
+  type Route,
+  type WorkspaceRoute,
+} from './content';
 
 type DashboardProps = {
+  route: WorkspaceRoute;
   onNavigate: (route: Route) => void;
 };
 
@@ -20,8 +30,9 @@ function formatTime(now: Date) {
   }).format(now);
 }
 
-export default function Dashboard({ onNavigate }: DashboardProps) {
+export default function Dashboard({ route, onNavigate }: DashboardProps) {
   const [now, setNow] = useState(() => new Date());
+  const page = getWorkspacePage(route);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -34,9 +45,9 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
   }, []);
 
   return (
-    <div className="dashboard-shell">
-      <aside className="dashboard-sidebar">
-        <div className="dashboard-sidebar__top">
+    <div className="workspace-shell">
+      <aside className="workspace-sidebar">
+        <div className="workspace-sidebar__top">
           <div className="brand-lockup">
             <div className="brand-mark" aria-hidden="true">
               {brandContent.mark}
@@ -47,160 +58,351 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
             </div>
           </div>
 
-          <p className="utility-label utility-label--sidebar">{dashboardContent.sidebarLabel}</p>
+          <p className="utility-label">{brandContent.workspaceLabel}</p>
         </div>
 
-        <nav className="dashboard-nav" aria-label="Workspace navigation">
-          {dashboardContent.navItems.map((item) => {
-            const isActive = item.route === 'dashboard';
-
-            return (
-              <button
-                key={`${item.label}-${item.route}`}
-                aria-current={isActive ? 'page' : undefined}
-                className={`dashboard-nav__item ${isActive ? 'is-active' : ''}`}
-                type="button"
-                onClick={() => onNavigate(item.route)}
-              >
-                <span className="dashboard-nav__title">{item.label}</span>
-                <span className="dashboard-nav__detail">{item.detail}</span>
-              </button>
-            );
-          })}
-        </nav>
-
-        <div className="dashboard-sidebar__status">
-          <p className="section-kicker">{dashboardContent.statusBlock.label}</p>
-          <strong>{dashboardContent.statusBlock.value}</strong>
-          <p>{dashboardContent.statusBlock.description}</p>
-        </div>
-      </aside>
-
-      <main className="dashboard-main">
-        <header className="dashboard-topbar">
-          <div className="dashboard-intro">
-            <p className="section-kicker">{dashboardContent.overview.eyebrow}</p>
-            <h1 className="dashboard-title">{dashboardContent.overview.title}</h1>
-            <p className="dashboard-copy">{dashboardContent.overview.description}</p>
-          </div>
-
-          <div className="dashboard-stamp">
-            <span className="dashboard-stamp__label">Last sync</span>
-            <strong>{formatDate(now)}</strong>
-            <span>{formatTime(now)}</span>
-          </div>
-        </header>
-
-        <section aria-labelledby="selected-kpis" className="dashboard-metric-section">
-          <div className="section-heading section-heading--stack">
-            <div>
-              <p className="section-kicker">{dashboardContent.metricsSection.eyebrow}</p>
-              <h2 id="selected-kpis">{dashboardContent.metricsSection.title}</h2>
-            </div>
-            <p className="section-copy">{dashboardContent.metricsSection.description}</p>
-          </div>
-
-          <div className="dashboard-metrics">
-            {dashboardContent.metrics.map((metric) => (
-              <div className="metric-block" key={metric.label}>
-                <span className="metric-block__label">{metric.label}</span>
-                <strong className="metric-block__value">{metric.value}</strong>
-                <p className="metric-block__detail">{metric.detail}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="dashboard-layout">
-          <section className="dashboard-panel dashboard-panel--primary">
-            <div className="section-heading">
-              <div>
-                <p className="section-kicker">{dashboardContent.queue.eyebrow}</p>
-                <h2>{dashboardContent.queue.title}</h2>
-              </div>
-              <button className="secondary-button" type="button" onClick={() => onNavigate('login')}>
-                {dashboardContent.queue.actionLabel}
-              </button>
-            </div>
-
-            <p className="section-copy">{dashboardContent.queue.description}</p>
-
-            <div className="table-wrap">
-              <table className="orders-table">
-                <thead>
-                  <tr>
-                    {dashboardContent.queue.columns.map((column) => (
-                      <th key={column}>{column}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {dashboardContent.orders.map((order) => (
-                    <tr key={order.orderNo}>
-                      <td>{order.user}</td>
-                      <td>{order.orderNo}</td>
-                      <td>{order.product}</td>
-                      <td>{order.spec}</td>
-                      <td>
-                        <span className="status-pill">{order.status}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          <aside className="dashboard-panel dashboard-panel--rail">
-            {dashboardContent.railSections.map((section) => (
-              <section className="dashboard-rail-section" key={section.title}>
-                <div className="section-heading section-heading--stack">
-                  <div>
-                    <p className="section-kicker">{section.eyebrow}</p>
-                    <h2>{section.title}</h2>
-                  </div>
-                  <p className="section-copy">{section.description}</p>
-                </div>
-
-                <ul className="activity-list">
-                  {section.items.map((item) => (
-                    <li key={item.title}>
-                      <div className="activity-row">
-                        <h3>{item.title}</h3>
-                        <span className="activity-meta">{item.meta}</span>
-                      </div>
-                      <p>{item.description}</p>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))}
-
-            <section className="dashboard-rail-section">
-              <div className="section-heading section-heading--stack">
-                <div>
-                  <p className="section-kicker">{dashboardContent.actions.eyebrow}</p>
-                  <h2>{dashboardContent.actions.title}</h2>
-                </div>
-                <p className="section-copy">{dashboardContent.actions.description}</p>
-              </div>
-
-              <div className="button-row dashboard-actions">
-                {dashboardContent.actions.items.map((action) => (
+        <div className="workspace-nav-groups">
+          {workspaceNavigation.map((group) => (
+            <div className="nav-group" key={group.label}>
+              <p className="nav-group__title">{group.label}</p>
+              <div className="nav-group__items">
+                {group.items.map((item) => (
                   <button
-                    key={action.label}
-                    className={action.tone === 'primary' ? 'primary-button' : 'secondary-button'}
+                    key={item.label}
                     type="button"
-                    onClick={() => onNavigate(action.route)}
+                    className={`nav-item ${page.navKey === item.key ? 'is-active' : ''}`}
+                    aria-current={page.navKey === item.key ? 'page' : undefined}
+                    onClick={() => onNavigate(item.route)}
                   >
-                    {action.label}
+                    <span className="nav-item__label">{item.label}</span>
+                    <span className="nav-item__detail">{item.detail}</span>
                   </button>
                 ))}
               </div>
-            </section>
-          </aside>
-        </section>
+            </div>
+          ))}
+        </div>
+
+        <div className="workspace-sidebar__footer">
+          {workspaceFooterLinks.map((action) => (
+            <button
+              key={action.label}
+              className={action.tone === 'primary' ? 'primary-button' : 'secondary-button'}
+              type="button"
+              onClick={() => onNavigate(action.route)}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      <main className="workspace-main">
+        <header
+          className="workspace-hero"
+          style={{
+            backgroundImage: `linear-gradient(180deg, rgba(4, 9, 14, 0.22), rgba(4, 9, 14, 0.76)), url(${page.heroImage})`,
+          }}
+        >
+          <div className="workspace-hero__copy">
+            <p className="section-kicker">{page.section}</p>
+            <h1 className="dashboard-title">{page.title}</h1>
+            <p className="dashboard-copy">{page.description}</p>
+
+            {'tabs' in page ? (
+              <div className="page-tabs" aria-label="Page mode">
+                {page.tabs.map((tab) => (
+                  <button
+                    key={tab.route}
+                    type="button"
+                    className={`page-tab ${route === tab.route ? 'is-active' : ''}`}
+                    aria-current={route === tab.route ? 'page' : undefined}
+                    onClick={() => onNavigate(tab.route)}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="workspace-hero__meta">
+            <div className="hero-meta-block">
+              <span className="hero-meta-block__label">Last sync</span>
+              <strong>{formatDate(now)}</strong>
+              <span>{formatTime(now)}</span>
+            </div>
+            <div className="hero-meta-block">
+              <span className="hero-meta-block__label">Image source</span>
+              <strong>Existing repo asset</strong>
+              <span>{route === 'dashboard' ? 'home-bg.jpg' : 'home-bg.jpg + module pages'}</span>
+            </div>
+          </div>
+        </header>
+
+        {page.kind === 'dashboard' ? (
+          <DashboardPageView page={page} onNavigate={onNavigate} />
+        ) : (
+          <ModulePageView page={page} onNavigate={onNavigate} />
+        )}
       </main>
     </div>
+  );
+}
+
+function DashboardPageView({ page, onNavigate }: { page: DashboardPage; onNavigate: (route: Route) => void }) {
+  return (
+    <>
+      <section className="summary-strip" aria-label="Dashboard metrics">
+        {page.metrics.map((item) => (
+          <div className="summary-item" key={item.label}>
+            <span className="summary-item__label">{item.label}</span>
+            <strong className="summary-item__value">{item.value}</strong>
+            <p className="summary-item__detail">{item.detail}</p>
+          </div>
+        ))}
+      </section>
+
+      <section className="workspace-layout workspace-layout--dashboard">
+        <section className="page-panel page-panel--main">
+          <div className="section-heading section-heading--stack">
+            <div>
+              <p className="section-kicker">Module map</p>
+              <h2>Left navigation modules</h2>
+            </div>
+            <p className="section-copy">
+              The workspace sidebar now follows the documented Dashboard, Warehouse Management, and Product Management structure.
+            </p>
+          </div>
+
+          <div className="module-groups">
+            {page.moduleHighlights.map((group) => (
+              <section className="module-group-panel" key={group.label}>
+                <div className="module-group-panel__header">
+                  <p className="section-kicker">{group.label}</p>
+                  <h3>{group.label}</h3>
+                </div>
+
+                <div className="module-group-panel__items">
+                  {group.items.map((item) => (
+                    <button
+                      key={`${group.label}-${item.label}`}
+                      type="button"
+                      className="module-link"
+                      onClick={() => onNavigate(item.route)}
+                    >
+                      <span className="module-link__label">{item.label}</span>
+                      <span className="module-link__detail">{item.detail}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        </section>
+
+        <aside className="page-panel page-panel--rail">
+          {page.coverage.map((block) => (
+            <section className="rail-block" key={block.title}>
+              <div className="section-heading section-heading--stack">
+                <div>
+                  <p className="section-kicker">{block.title}</p>
+                  <h2>{block.title}</h2>
+                </div>
+              </div>
+
+              <ul className="mono-list">
+                {block.items.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </section>
+          ))}
+
+          <section className="rail-block">
+            <div className="section-heading section-heading--stack">
+              <div>
+                <p className="section-kicker">Quick actions</p>
+                <h2>Jump into modules</h2>
+              </div>
+            </div>
+
+            <div className="button-stack">
+              {page.actions.map((action) => (
+                <button
+                  key={action.label}
+                  className={action.tone === 'primary' ? 'primary-button' : 'secondary-button'}
+                  type="button"
+                  onClick={() => onNavigate(action.route)}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          </section>
+        </aside>
+      </section>
+
+      <section className="page-panel">
+        <div className="section-heading">
+          <div>
+            <p className="section-kicker">Page coverage</p>
+            <h2>{page.spotlight.title}</h2>
+          </div>
+          <p className="section-copy">{page.spotlight.description}</p>
+        </div>
+
+        <div className="table-wrap">
+          <table className="orders-table">
+            <thead>
+              <tr>
+                {page.spotlight.columns.map((column) => (
+                  <th key={column.key}>{column.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {page.spotlight.rows.map((row) => (
+                <tr key={`${row.module}-${row.entity}`}>
+                  {page.spotlight.columns.map((column) => (
+                    <td key={column.key}>{row[column.key]}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function ModulePageView({ page, onNavigate }: { page: ModulePage; onNavigate: (route: Route) => void }) {
+  return (
+    <>
+      <section className="summary-strip" aria-label={`${page.title} summary`}>
+        {page.summary.map((item) => (
+          <div className="summary-item" key={item.label}>
+            <span className="summary-item__label">{item.label}</span>
+            <strong className="summary-item__value">{item.value}</strong>
+            <p className="summary-item__detail">{item.detail}</p>
+          </div>
+        ))}
+      </section>
+
+      <section className="workspace-layout">
+        <section className="page-panel page-panel--main">
+          {page.kind === 'list' ? (
+            <>
+              <div className="section-heading">
+                <div>
+                  <p className="section-kicker">List page</p>
+                  <h2>{page.title}</h2>
+                </div>
+                <p className="section-copy">Rows and columns below are aligned to the documented entity fields for this module.</p>
+              </div>
+
+              <div className="table-wrap">
+                <table className="orders-table">
+                  <thead>
+                    <tr>
+                      {page.columns?.map((column) => (
+                        <th key={column.key}>{column.label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {page.rows?.map((row, index) => (
+                      <tr key={`${page.title}-${index}`}>
+                        {page.columns?.map((column) => (
+                          <td key={column.key}>{row[column.key]}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="section-heading">
+                <div>
+                  <p className="section-kicker">Detail page</p>
+                  <h2>{page.title}</h2>
+                </div>
+                <p className="section-copy">The field groups below are built from the basic field list and the module relationships from the execution docs.</p>
+              </div>
+
+              <div className="detail-groups">
+                {page.detailGroups?.map((group) => (
+                  <section className="detail-group" key={group.title}>
+                    <div className="detail-group__header">
+                      <p className="section-kicker">{group.title}</p>
+                      <h3>{group.title}</h3>
+                    </div>
+
+                    <dl className="detail-list">
+                      {group.fields.map((field) => (
+                        <div className="detail-list__row" key={field.label}>
+                          <dt>{field.label}</dt>
+                          <dd>{field.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+
+        <aside className="page-panel page-panel--rail">
+          <section className="rail-block">
+            <div className="section-heading section-heading--stack">
+              <div>
+                <p className="section-kicker">Entity source</p>
+                <h2>{page.entityLabel}</h2>
+              </div>
+              <p className="section-copy">Exact field names below come from `basic-field-list.md`.</p>
+            </div>
+
+            <div className="blueprint-groups">
+              {page.fieldBlueprint.map((group) => (
+                <div className="blueprint-group" key={group.title}>
+                  <p className="blueprint-group__title">{group.title}</p>
+                  <ul className="mono-list">
+                    {group.fields.map((field) => (
+                      <li key={field}>{field}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="rail-block">
+            <div className="section-heading section-heading--stack">
+              <div>
+                <p className="section-kicker">Actions</p>
+                <h2>Route controls</h2>
+              </div>
+            </div>
+
+            <div className="button-stack">
+              {page.actions.map((action) => (
+                <button
+                  key={action.label}
+                  className={action.tone === 'primary' ? 'primary-button' : 'secondary-button'}
+                  type="button"
+                  onClick={() => onNavigate(action.route)}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          </section>
+        </aside>
+      </section>
+    </>
   );
 }
