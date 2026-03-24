@@ -1,39 +1,9 @@
 import { useEffect, useState } from 'react';
-
-type Route = 'login' | 'register' | 'dashboard';
+import { brandContent, dashboardContent, type Route } from './content';
 
 type DashboardProps = {
   onNavigate: (route: Route) => void;
 };
-
-const metrics = [
-  { label: 'Orders today', value: '24' },
-  { label: 'Categories', value: '8' },
-  { label: 'Products tracked', value: '136' },
-  { label: 'Pending review', value: '5' },
-];
-
-const orders = [
-  { user: 'User_01', orderNo: 'ORD-1024', product: 'Bolt Set A', spec: 'M10 x 50', status: 'Packed' },
-  { user: 'User_01', orderNo: 'ORD-1023', product: 'Nut Pack B', spec: 'M12', status: 'Picking' },
-  { user: 'User_02', orderNo: 'ORD-1022', product: 'Washer C', spec: '16 mm', status: 'Awaiting QC' },
-  { user: 'User_03', orderNo: 'ORD-1021', product: 'Clamp D', spec: '22 mm', status: 'Shipped' },
-];
-
-const activityItems = [
-  {
-    title: 'Morning sync completed',
-    description: 'Warehouse intake and dispatch figures were refreshed a few minutes ago.',
-  },
-  {
-    title: 'Low-stock attention',
-    description: 'Twelve items are below threshold and need a replenishment decision.',
-  },
-  {
-    title: 'Operator handoff',
-    description: 'The current shift left notes for two orders that require manual confirmation.',
-  },
-];
 
 function formatDate(now: Date) {
   return new Intl.DateTimeFormat('en-US', {
@@ -66,88 +36,106 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
   return (
     <div className="dashboard-shell">
       <aside className="dashboard-sidebar">
-        <div className="brand-lockup">
-          <div className="brand-mark">N</div>
-          <div>
-            <p className="brand-name">Northline</p>
-            <p className="brand-caption">Operations console</p>
+        <div className="dashboard-sidebar__top">
+          <div className="brand-lockup">
+            <div className="brand-mark" aria-hidden="true">
+              {brandContent.mark}
+            </div>
+            <div className="brand-copy">
+              <p className="brand-name">{brandContent.name}</p>
+              <p className="brand-caption">{brandContent.caption}</p>
+            </div>
           </div>
+
+          <p className="utility-label utility-label--sidebar">{dashboardContent.sidebarLabel}</p>
         </div>
 
-        <nav className="dashboard-nav" aria-label="Dashboard navigation">
-          <button className="dashboard-nav__item" type="button" onClick={() => onNavigate('login')}>
-            Back to Login
-          </button>
-          <button className="dashboard-nav__item is-active" type="button" onClick={() => onNavigate('dashboard')}>
-            Orders
-          </button>
-          <button className="dashboard-nav__item" type="button" onClick={() => onNavigate('register')}>
-            Register View
-          </button>
-          <button className="dashboard-nav__item" type="button" onClick={() => onNavigate('login')}>
-            Log Out
-          </button>
+        <nav className="dashboard-nav" aria-label="Workspace navigation">
+          {dashboardContent.navItems.map((item) => {
+            const isActive = item.route === 'dashboard';
+
+            return (
+              <button
+                key={`${item.label}-${item.route}`}
+                aria-current={isActive ? 'page' : undefined}
+                className={`dashboard-nav__item ${isActive ? 'is-active' : ''}`}
+                type="button"
+                onClick={() => onNavigate(item.route)}
+              >
+                <span className="dashboard-nav__title">{item.label}</span>
+                <span className="dashboard-nav__detail">{item.detail}</span>
+              </button>
+            );
+          })}
         </nav>
 
-        <div className="dashboard-quick">
-          <p className="dashboard-kicker">Quick status</p>
-          <strong>12 items low in stock</strong>
-          <span>Login and register now both land directly on this dashboard preview.</span>
+        <div className="dashboard-sidebar__status">
+          <p className="section-kicker">{dashboardContent.statusBlock.label}</p>
+          <strong>{dashboardContent.statusBlock.value}</strong>
+          <p>{dashboardContent.statusBlock.description}</p>
         </div>
       </aside>
 
       <main className="dashboard-main">
         <header className="dashboard-topbar">
           <div className="dashboard-intro">
-            <p className="eyebrow">Dashboard view</p>
-            <h1>Inventory and order flow in one place.</h1>
-            <p>
-              The React project now owns the main preview experience, so login and registration both arrive here
-              directly instead of stopping on a separate home page.
-            </p>
+            <p className="section-kicker">{dashboardContent.overview.eyebrow}</p>
+            <h1 className="dashboard-title">{dashboardContent.overview.title}</h1>
+            <p className="dashboard-copy">{dashboardContent.overview.description}</p>
           </div>
 
           <div className="dashboard-stamp">
-            <span className="dashboard-stamp__label">Last refresh</span>
+            <span className="dashboard-stamp__label">Last sync</span>
             <strong>{formatDate(now)}</strong>
             <span>{formatTime(now)}</span>
           </div>
         </header>
 
-        <section className="dashboard-metrics" aria-label="Key metrics">
-          {metrics.map((metric) => (
-            <div className="metric-block" key={metric.label}>
-              <span>{metric.label}</span>
-              <strong>{metric.value}</strong>
+        <section aria-labelledby="selected-kpis" className="dashboard-metric-section">
+          <div className="section-heading section-heading--stack">
+            <div>
+              <p className="section-kicker">{dashboardContent.metricsSection.eyebrow}</p>
+              <h2 id="selected-kpis">{dashboardContent.metricsSection.title}</h2>
             </div>
-          ))}
+            <p className="section-copy">{dashboardContent.metricsSection.description}</p>
+          </div>
+
+          <div className="dashboard-metrics">
+            {dashboardContent.metrics.map((metric) => (
+              <div className="metric-block" key={metric.label}>
+                <span className="metric-block__label">{metric.label}</span>
+                <strong className="metric-block__value">{metric.value}</strong>
+                <p className="metric-block__detail">{metric.detail}</p>
+              </div>
+            ))}
+          </div>
         </section>
 
         <section className="dashboard-layout">
-          <div className="dashboard-section">
+          <section className="dashboard-panel dashboard-panel--primary">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Recent orders</p>
-                <h2>Live order queue</h2>
+                <p className="section-kicker">{dashboardContent.queue.eyebrow}</p>
+                <h2>{dashboardContent.queue.title}</h2>
               </div>
               <button className="secondary-button" type="button" onClick={() => onNavigate('login')}>
-                Return to login
+                {dashboardContent.queue.actionLabel}
               </button>
             </div>
+
+            <p className="section-copy">{dashboardContent.queue.description}</p>
 
             <div className="table-wrap">
               <table className="orders-table">
                 <thead>
                   <tr>
-                    <th>User</th>
-                    <th>Order No.</th>
-                    <th>Product</th>
-                    <th>Spec</th>
-                    <th>Status</th>
+                    {dashboardContent.queue.columns.map((column) => (
+                      <th key={column}>{column}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {orders.map((order) => (
+                  {dashboardContent.orders.map((order) => (
                     <tr key={order.orderNo}>
                       <td>{order.user}</td>
                       <td>{order.orderNo}</td>
@@ -161,39 +149,56 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
                 </tbody>
               </table>
             </div>
-          </div>
+          </section>
 
-          <div className="dashboard-side-stack">
-            <section className="dashboard-section">
-              <p className="eyebrow">Team notes</p>
-              <h2>What needs attention</h2>
-              <ul className="activity-list">
-                {activityItems.map((item) => (
-                  <li key={item.title}>
-                    <h3>{item.title}</h3>
-                    <p>{item.description}</p>
-                  </li>
-                ))}
-              </ul>
-            </section>
+          <aside className="dashboard-panel dashboard-panel--rail">
+            {dashboardContent.railSections.map((section) => (
+              <section className="dashboard-rail-section" key={section.title}>
+                <div className="section-heading section-heading--stack">
+                  <div>
+                    <p className="section-kicker">{section.eyebrow}</p>
+                    <h2>{section.title}</h2>
+                  </div>
+                  <p className="section-copy">{section.description}</p>
+                </div>
 
-            <section className="dashboard-section">
-              <p className="eyebrow">Next action</p>
-              <h2>Keep the flow connected</h2>
-              <p className="dashboard-note">
-                Because the app now uses direct login-to-dashboard routing, you can preview the important screens from
-                one React bundle without maintaining a separate home step.
-              </p>
+                <ul className="activity-list">
+                  {section.items.map((item) => (
+                    <li key={item.title}>
+                      <div className="activity-row">
+                        <h3>{item.title}</h3>
+                        <span className="activity-meta">{item.meta}</span>
+                      </div>
+                      <p>{item.description}</p>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+
+            <section className="dashboard-rail-section">
+              <div className="section-heading section-heading--stack">
+                <div>
+                  <p className="section-kicker">{dashboardContent.actions.eyebrow}</p>
+                  <h2>{dashboardContent.actions.title}</h2>
+                </div>
+                <p className="section-copy">{dashboardContent.actions.description}</p>
+              </div>
+
               <div className="button-row dashboard-actions">
-                <button className="primary-button" type="button" onClick={() => onNavigate('register')}>
-                  View Register
-                </button>
-                <button className="secondary-button" type="button" onClick={() => onNavigate('login')}>
-                  Back to Login
-                </button>
+                {dashboardContent.actions.items.map((action) => (
+                  <button
+                    key={action.label}
+                    className={action.tone === 'primary' ? 'primary-button' : 'secondary-button'}
+                    type="button"
+                    onClick={() => onNavigate(action.route)}
+                  >
+                    {action.label}
+                  </button>
+                ))}
               </div>
             </section>
-          </div>
+          </aside>
         </section>
       </main>
     </div>

@@ -1,49 +1,12 @@
-import { startTransition, useEffect, useState } from 'react';
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import './App.css';
 import Dashboard from './Dashboard';
+import { authContent, brandContent, routeOrder, type AuthVariant, type Route } from './content';
 
-type Route = 'login' | 'register' | 'dashboard';
-
-const validRoutes = new Set<Route>(['login', 'register', 'dashboard']);
-
-const authContent = {
-  login: {
-    eyebrow: 'Workspace access',
-    title: 'Sign in and open the dashboard.',
-    description:
-      'Keep account access, order flow, and inventory visibility in one calm place without switching between separate HTML pages.',
-    primaryAction: 'Log In',
-    secondaryLabel: "Don't have an account yet?",
-    secondaryAction: 'Create One',
-    secondaryRoute: 'register' as Route,
-    fields: [
-      { label: 'Username', type: 'text', placeholder: 'Enter your username' },
-      { label: 'Password', type: 'password', placeholder: 'Enter your password' },
-    ],
-  },
-  register: {
-    eyebrow: 'New workspace',
-    title: 'Create your account and continue.',
-    description:
-      'Set up a clean starting point for login and daily operations, then land directly on the dashboard instead of a separate home page.',
-    primaryAction: 'Create Account',
-    secondaryLabel: 'Already registered?',
-    secondaryAction: 'Back to Login',
-    secondaryRoute: 'login' as Route,
-    fields: [
-      { label: 'Username', type: 'text', placeholder: 'Choose a username' },
-      { label: 'Email', type: 'email', placeholder: 'Enter your email' },
-      { label: 'Password', type: 'password', placeholder: 'Create a password' },
-    ],
-  },
-};
-
-const authHighlights = [
-  'Login and register both route directly into the dashboard preview',
-  'Single React entry instead of separate HTML files that drift apart',
-  'Shared visual language across authentication and dashboard screens',
-];
+const validRoutes = new Set<Route>(routeOrder);
+const routeIndex = Object.fromEntries(routeOrder.map((route, index) => [route, index])) as Record<Route, number>;
+const transitionDurationMs = 220;
 
 function readRouteFromHash(): Route {
   if (typeof window === 'undefined') {
@@ -60,15 +23,102 @@ function writeRouteToHash(route: Route) {
   }
 }
 
+function usePrefersReducedMotion() {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const updatePreference = () => {
+      setPrefersReducedMotion(mediaQuery.matches);
+    };
+
+    updatePreference();
+    mediaQuery.addEventListener('change', updatePreference);
+
+    return () => {
+      mediaQuery.removeEventListener('change', updatePreference);
+    };
+  }, []);
+
+  return prefersReducedMotion;
+}
+
 function App() {
-  const [route, setRoute] = useState<Route>(() => readRouteFromHash());
+  const initialRoute = readRouteFromHash();
+  const [displayRoute, setDisplayRoute] = useState<Route>(initialRoute);
+  const [transitionState, setTransitionState] = useState<'idle' | 'exiting' | 'entering'>('idle');
+  const [transitionDirection, setTransitionDirection] = useState<'forward' | 'backward'>('forward');
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const displayRouteRef = useRef<Route>(initialRoute);
+  const transitionTimers = useRef<number[]>([]);
+
+  useEffect(() => {
+    const clearTimers = () => {
+      transitionTimers.current.forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      transitionTimers.current = [];
+    };
+
+    return () => {
+      clearTimers();
+    };
+  }, []);
+
+  const transitionToRoute = useCallback((nextRoute: Route) => {
+    transitionTimers.current.forEach((timerId) => {
+      window.clearTimeout(timerId);
+    });
+    transitionTimers.current = [];
+
+    const currentRoute = displayRouteRef.current;
+
+    if (nextRoute === currentRoute) {
+      setTransitionState('idle');
+      return;
+    }
+
+    setTransitionDirection(routeIndex[nextRoute] >= routeIndex[currentRoute] ? 'forward' : 'backward');
+
+    if (prefersReducedMotion) {
+      displayRouteRef.current = nextRoute;
+      startTransition(() => {
+        setDisplayRoute(nextRoute);
+        setTransitionState('idle');
+      });
+      return;
+    }
+
+    startTransition(() => {
+      setTransitionState('exiting');
+    });
+
+    const exitTimer = window.setTimeout(() => {
+      displayRouteRef.current = nextRoute;
+      startTransition(() => {
+        setDisplayRoute(nextRoute);
+        setTransitionState('entering');
+      });
+
+      const enterTimer = window.setTimeout(() => {
+        startTransition(() => {
+          setTransitionState('idle');
+        });
+      }, 24);
+
+      transitionTimers.current.push(enterTimer);
+    }, transitionDurationMs);
+
+    transitionTimers.current.push(exitTimer);
+  }, [prefersReducedMotion]);
 
   useEffect(() => {
     const syncRoute = () => {
-      const nextRoute = readRouteFromHash();
-      startTransition(() => {
-        setRoute(nextRoute);
-      });
+      transitionToRoute(readRouteFromHash());
     };
 
     if (!window.location.hash) {
@@ -81,32 +131,36 @@ function App() {
     return () => {
       window.removeEventListener('hashchange', syncRoute);
     };
-  }, []);
+  }, [transitionToRoute]);
 
   const navigate = (nextRoute: Route) => {
+    if (nextRoute === displayRouteRef.current && window.location.hash === `#/${nextRoute}`) {
+      return;
+    }
+
+    if (window.location.hash === `#/${nextRoute}`) {
+      transitionToRoute(nextRoute);
+      return;
+    }
+
     writeRouteToHash(nextRoute);
-    startTransition(() => {
-      setRoute(nextRoute);
-    });
   };
 
-  if (route === 'dashboard') {
-    return (
-      <div className="app-shell">
-        <Dashboard onNavigate={navigate} />
-      </div>
-    );
-  }
-
   return (
-    <div className="app-shell">
-      <AuthPage variant={route} onNavigate={navigate} />
+    <div className={`app-shell app-shell--${displayRoute}`}>
+      <div className={`screen-frame screen-frame--${transitionState} screen-frame--${transitionDirection}`}>
+        {displayRoute === 'dashboard' ? (
+          <Dashboard onNavigate={navigate} />
+        ) : (
+          <AuthPage variant={displayRoute} onNavigate={navigate} />
+        )}
+      </div>
     </div>
   );
 }
 
 type AuthPageProps = {
-  variant: 'login' | 'register';
+  variant: AuthVariant;
   onNavigate: (route: Route) => void;
 };
 
@@ -120,57 +174,91 @@ function AuthPage({ variant, onNavigate }: AuthPageProps) {
 
   return (
     <main className={`auth-screen auth-screen--${variant}`}>
-      <div className="auth-screen__grid">
-        <section className="auth-screen__hero">
-          <div className="brand-lockup">
-            <div className="brand-mark">N</div>
-            <div>
-              <p className="brand-name">Northline</p>
-              <p className="brand-caption">Unified login and dashboard flow</p>
+      <section className="auth-hero" aria-label={`${brandContent.name} overview`}>
+        <div className="auth-hero__surface">
+          <header className="auth-hero__header">
+            <div className="brand-lockup">
+              <div className="brand-mark" aria-hidden="true">
+                {brandContent.mark}
+              </div>
+              <div className="brand-copy">
+                <p className="brand-name">{brandContent.name}</p>
+                <p className="brand-caption">{brandContent.caption}</p>
+              </div>
             </div>
-          </div>
 
-          <div className="route-pills" aria-label="Primary navigation">
-            <a className={`route-pill ${variant === 'login' ? 'is-active' : ''}`} href="#/login">
-              Login
-            </a>
-            <a className={`route-pill ${variant === 'register' ? 'is-active' : ''}`} href="#/register">
-              Register
-            </a>
-            <a className="route-pill" href="#/dashboard">
-              Dashboard
-            </a>
-          </div>
+            <p className="utility-label">{brandContent.workspaceLabel}</p>
+          </header>
 
-          <div className="hero-copy">
-            <p className="eyebrow">{content.eyebrow}</p>
+          <div className="auth-hero__body">
+            <p className="section-kicker">{content.eyebrow}</p>
             <h1 className="page-title">{content.title}</h1>
             <p className="page-description">{content.description}</p>
           </div>
 
-          <ul className="detail-list">
-            {authHighlights.map((highlight) => (
-              <li key={highlight}>{highlight}</li>
-            ))}
-          </ul>
-        </section>
+          <div className="auth-hero__footer">
+            <div className="auth-support">
+              {content.supportItems.map((item) => (
+                <div className="support-item" key={item.title}>
+                  <p className="support-item__title">{item.title}</p>
+                  <p className="support-item__copy">{item.description}</p>
+                </div>
+              ))}
+            </div>
 
-        <section className="form-panel">
+            <div className="auth-signal-strip" aria-label={content.signalLabel}>
+              {content.signalStrip.map((signal) => (
+                <div className="auth-signal" key={signal.label}>
+                  <span className="auth-signal__label">{signal.label}</span>
+                  <strong className="auth-signal__value">{signal.value}</strong>
+                  <p className="auth-signal__detail">{signal.detail}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="auth-panel">
+        <div className="auth-panel__inner">
+          <nav className="panel-nav" aria-label="Authentication views">
+            <button
+              className={`panel-nav__link ${variant === 'login' ? 'is-active' : ''}`}
+              type="button"
+              aria-current={variant === 'login' ? 'page' : undefined}
+              onClick={() => onNavigate('login')}
+            >
+              Sign in
+            </button>
+            <button
+              className={`panel-nav__link ${variant === 'register' ? 'is-active' : ''}`}
+              type="button"
+              aria-current={variant === 'register' ? 'page' : undefined}
+              onClick={() => onNavigate('register')}
+            >
+              Register
+            </button>
+            <button className="panel-nav__link panel-nav__link--muted" type="button" onClick={() => onNavigate('dashboard')}>
+              Dashboard
+            </button>
+          </nav>
+
           <div className="panel-heading">
-            <p className="eyebrow">React primary version</p>
-            <h2>{variant === 'login' ? 'Welcome back' : 'Start your workspace'}</h2>
-            <p>
-              {variant === 'login'
-                ? 'Use the form below to continue directly into the dashboard.'
-                : 'Create your account and continue directly into the dashboard.'}
-            </p>
+            <p className="section-kicker">{content.panelEyebrow}</p>
+            <h2>{content.panelTitle}</h2>
+            <p>{content.panelDescription}</p>
           </div>
 
           <form className="form-grid" onSubmit={handleSubmit}>
             {content.fields.map((field) => (
               <label className="field" key={field.label}>
                 <span>{field.label}</span>
-                <input type={field.type} placeholder={field.placeholder} required />
+                <input
+                  autoComplete={field.autoComplete}
+                  placeholder={field.placeholder}
+                  required
+                  type={field.type}
+                />
               </label>
             ))}
 
@@ -178,20 +266,20 @@ function AuthPage({ variant, onNavigate }: AuthPageProps) {
               <button className="primary-button" type="submit">
                 {content.primaryAction}
               </button>
-              <button className="secondary-button" type="button" onClick={() => onNavigate('dashboard')}>
-                Open Dashboard
+              <button className="secondary-button" type="button" onClick={() => onNavigate(content.secondaryRoute)}>
+                {content.secondaryAction}
               </button>
             </div>
           </form>
 
           <div className="panel-footer">
-            <p>{content.secondaryLabel}</p>
-            <button className="ghost-link" type="button" onClick={() => onNavigate(content.secondaryRoute)}>
-              {content.secondaryAction}
+            <p>{content.footerLabel}</p>
+            <button className="ghost-link" type="button" onClick={() => onNavigate(content.footerRoute)}>
+              {content.footerAction}
             </button>
           </div>
-        </section>
-      </div>
+        </div>
+      </section>
     </main>
   );
 }
