@@ -6,6 +6,7 @@ export type AuthRoute = 'login' | 'register';
 
 export type WorkspaceRoute =
   | 'dashboard'
+  | 'ocr-workbench'
   | 'inventory-list'
   | 'inventory-detail'
   | 'inbound-list'
@@ -34,7 +35,7 @@ export type WorkspaceRoute =
 export type Route = AuthRoute | WorkspaceRoute;
 export type AuthVariant = AuthRoute;
 export type AuthLocale = 'en' | 'zh';
-export type NavKey = 'dashboard' | 'inventory' | 'inbound' | 'outbound' | 'approval' | 'users';
+export type NavKey = 'dashboard' | 'ocr' | 'inventory' | 'inbound' | 'outbound' | 'approval' | 'users';
 
 export type SummaryItem = {
   label: string;
@@ -145,6 +146,7 @@ export const routeOrder: Route[] = [
   'login',
   'register',
   'dashboard',
+  'ocr-workbench',
   'inventory-list',
   'inventory-detail',
   'inbound-list',
@@ -212,6 +214,12 @@ const workspaceNavigationByLocale: Record<AuthLocale, NavigationGroup[]> = {
           detail: 'KPIs, trend, alerts',
         },
         {
+          key: 'ocr',
+          label: 'OCR Workbench',
+          route: 'ocr-workbench',
+          detail: 'Upload, detect, extract, and template forms',
+        },
+        {
           key: 'inventory',
           label: 'Inventory',
           route: 'inventory-list',
@@ -258,6 +266,12 @@ const workspaceNavigationByLocale: Record<AuthLocale, NavigationGroup[]> = {
           label: '数据概览',
           route: 'dashboard',
           detail: '指标、趋势、预警',
+        },
+        {
+          key: 'ocr',
+          label: 'OCR 工作台',
+          route: 'ocr-workbench',
+          detail: '上传、识别、提取与模板复用',
         },
         {
           key: 'inventory',
@@ -611,6 +625,17 @@ export function getWorkspacePage(route: WorkspaceRoute, locale: AuthLocale = 'en
   switch (route) {
     case 'dashboard':
       return dashboardPage;
+    case 'ocr-workbench':
+      return createModulePage(
+        locale,
+        'ocr',
+        'list',
+        locale === 'zh' ? 'OCR 工作台' : 'OCR Workbench',
+        locale === 'zh'
+          ? '上传 PDF 或图片表单，生成候选框，调整字段框，执行 OCR，并保存团队共享模板。'
+          : 'Upload PDF or image forms, generate candidate boxes, adjust extraction fields, run OCR, and save shared templates.',
+        [],
+      );
     case 'inventory-list':
       return createModulePage(
         locale,

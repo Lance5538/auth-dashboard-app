@@ -4,5 +4,8 @@
 images/
 node_modules/
 dist/
+.venv/
+ocr-service/.paddlex/
 .env.production
 real-time-inventory-system-main/backend/.env
+real-time-inventory-system-main/backend/storage/

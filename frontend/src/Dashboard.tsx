@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import LanguageToggle from './LanguageToggle';
 import OperationalModuleView from './OperationalViews';
+import OcrWorkbench from './OcrWorkbench';
 import WarehouseDashboardView from './WarehouseDashboardView';
 import {
   getBrandContent,
@@ -91,10 +92,12 @@ export default function Dashboard({
   onRefreshWorkspaceData,
 }: DashboardProps) {
   const [now, setNow] = useState(() => new Date());
+  const [isWorkspaceNavCollapsed, setIsWorkspaceNavCollapsed] = useState(true);
   const resolvedRoute = resolveWorkspaceRoute(route);
   const activeRoute = currentUser && ops.canAccessWorkspaceRoute(currentUser, resolvedRoute) ? resolvedRoute : ops.getDefaultWorkspaceRoute(currentUser);
   const page = getWorkspacePage(activeRoute, locale);
   const isRedirected = resolvedRoute !== route;
+  const isOcrRoute = activeRoute === 'ocr-workbench';
   const brand = getBrandContent(locale);
   const navigation = useMemo(
     () =>
@@ -131,7 +134,7 @@ export default function Dashboard({
   }
 
   return (
-    <div className="admin-shell">
+    <div className={`admin-shell ${isOcrRoute ? 'admin-shell--ocr' : ''} ${isOcrRoute && isWorkspaceNavCollapsed ? 'admin-shell--nav-collapsed' : ''}`}>
       <aside className="admin-sidebar">
         <div className="admin-sidebar__brand">
           <div className="brand-lockup">
@@ -176,6 +179,19 @@ export default function Dashboard({
       </aside>
 
       <main className="admin-main">
+        {isOcrRoute ? (
+          <button
+            type="button"
+            className="ocr-shell-toggle"
+            onClick={() => setIsWorkspaceNavCollapsed((current) => !current)}
+            aria-label={isWorkspaceNavCollapsed ? (locale === 'zh' ? '展开导航' : 'Show navigation') : locale === 'zh' ? '收起导航' : 'Hide navigation'}
+          >
+            <svg viewBox="0 0 24 24" className={`ocr-shell-toggle__icon ${isWorkspaceNavCollapsed ? '' : 'is-open'}`} fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M14.5 5l-7 7 7 7" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        ) : null}
+
         <header className="admin-page-header">
           <div className="admin-page-header__copy">
             <p className="section-kicker">{page.section}</p>
@@ -221,6 +237,8 @@ export default function Dashboard({
               onNavigate={onNavigate}
               canReviewApprovals={ops.hasPermission(currentUser, 'approve_orders')}
             />
+          ) : activeRoute === 'ocr-workbench' ? (
+            <OcrWorkbench locale={locale} sessionToken={sessionToken} />
           ) : (
             <OperationalModuleView
               route={activeRoute}

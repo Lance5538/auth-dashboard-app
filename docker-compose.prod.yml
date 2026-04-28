@@ -22,9 +22,27 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       JWT_SECRET: ${JWT_SECRET}
       PORT: 4000
+      OCR_SERVICE_URL: ${OCR_SERVICE_URL:-http://ocr-service:8001}
     depends_on:
       postgres:
         condition: service_healthy
+      ocr-service:
+        condition: service_healthy
+    volumes:
+      - ./real-time-inventory-system-main/backend/storage:/app/storage
+
+  ocr-service:
+    platform: ${OCR_PLATFORM:-linux/amd64}
+    build:
+      context: ./ocr-service
+    restart: unless-stopped
+    volumes:
+      - ./ocr-service/.paddlex:/root/.paddlex
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   frontend:
     build:

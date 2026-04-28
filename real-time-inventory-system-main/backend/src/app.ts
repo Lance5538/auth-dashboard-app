@@ -14,6 +14,7 @@ import inboundRoutes from "./modules/inbounds/inbound.routes";
 import outboundRoutes from "./modules/outbounds/outbound.routes";
 import approvalRoutes from "./modules/approvals/approval.routes";
 import userRoutes from "./modules/users/user.routes";
+import ocrRoutes from "./modules/ocr/ocr.routes";
 import { errorMiddleware } from "./middlewares/error.middleware";
 
 const app = express();
@@ -40,6 +41,7 @@ app.use("/inbounds", inboundRoutes);
 app.use("/outbounds", outboundRoutes);
 app.use("/approvals", approvalRoutes);
 app.use("/users", userRoutes);
+app.use("/ocr", ocrRoutes);
 
 // 一定要放在所有路由后面
 app.use(errorMiddleware);

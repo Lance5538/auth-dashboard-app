@@ -198,6 +198,115 @@ export type CreateOutboundOrderInput = {
   lineItems: BackendOrderLineItemInput[];
 };
 
+export type OcrFieldType = 'TEXT' | 'NUMBER' | 'DATE' | 'PHONE' | 'CODE' | 'CONTAINER_NO';
+export type OcrRiskLevel = 'NORMAL' | 'REVIEW' | 'HIGH_RISK';
+
+export type NormalizedBbox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type BackendOcrPage = {
+  id: string;
+  documentId: string;
+  pageNumber: number;
+  sourceWidth?: number | null;
+  sourceHeight?: number | null;
+  qualityStatus?: string | null;
+  qualityDetails?: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BackendOcrDocument = {
+  id: string;
+  fileName: string;
+  originalMimeType: string;
+  kind: 'IMAGE' | 'PDF';
+  storagePath: string;
+  pageCount: number;
+  status: 'UPLOADED' | 'READY' | 'FAILED' | 'ARCHIVED';
+  retentionExpiresAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  pages: BackendOcrPage[];
+};
+
+export type BackendOcrTemplateField = {
+  id?: string;
+  fieldName: string;
+  outputColumn: string;
+  fieldType: OcrFieldType;
+  required?: boolean;
+  validationRule?: string;
+  riskRule?: string;
+  bboxNormalized: NormalizedBbox;
+  regionType?: string;
+  sortOrder?: number;
+};
+
+export type BackendOcrTemplate = {
+  id: string;
+  name: string;
+  description?: string | null;
+  anchorConfig?: Record<string, unknown> | null;
+  archivedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  fields: BackendOcrTemplateField[];
+};
+
+export type BackendOcrCandidate = {
+  id: string;
+  bboxNormalized: NormalizedBbox;
+  confidence: number;
+  textPreview?: string;
+};
+
+export type BackendOcrQuality = {
+  status: string;
+  checks: Record<string, string | number | boolean>;
+  suggestions: string[];
+};
+
+export type BackendOcrResult = {
+  id: string;
+  jobId: string;
+  documentPageId: string;
+  fieldName: string;
+  outputColumn: string;
+  fieldType: OcrFieldType;
+  ocrRawText?: string | null;
+  finalText?: string | null;
+  confidence?: number | null;
+  riskLevel: OcrRiskLevel;
+  validationStatus: 'NOT_RUN' | 'PASSED' | 'FAILED';
+  validationMessage?: string | null;
+  manuallyEdited: boolean;
+  confirmedByUser: boolean;
+  sourceBbox?: NormalizedBbox | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BackendOcrJob = {
+  id: string;
+  documentId: string;
+  documentPageId: string;
+  jobType: 'DETECT' | 'EXTRACT';
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  resultSummary?: Record<string, unknown> | null;
+  errorMessage?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  durationMs?: number | null;
+  createdAt: string;
+  updatedAt: string;
+  results: BackendOcrResult[];
+};
+
 type ApiRequestOptions = {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
@@ -256,6 +365,187 @@ export function fetchProducts(token: string) {
 export function fetchWarehouses(token: string) {
   return apiRequest<{ warehouses: BackendWarehouse[] }>('/warehouses', {
     token,
+  });
+}
+
+export async function uploadOcrDocument(file: File, token: string) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${apiBaseUrl}/ocr/documents`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+
+  const payload = (await response.json().catch(() => null)) as { message?: string; document?: BackendOcrDocument } | null;
+
+  if (!response.ok || !payload?.document) {
+    throw new Error(payload?.message ?? `Upload failed with status ${response.status}`);
+  }
+
+  return payload;
+}
+
+export function fetchOcrDocuments(token: string) {
+  return apiRequest<{ documents: BackendOcrDocument[] }>('/ocr/documents', { token });
+}
+
+export function fetchOcrDocumentPages(documentId: string, token: string) {
+  return apiRequest<{
+    document: Pick<BackendOcrDocument, 'id' | 'fileName' | 'kind' | 'pageCount' | 'status'>;
+    pages: BackendOcrPage[];
+  }>(`/ocr/documents/${documentId}/pages`, { token });
+}
+
+export function deleteOcrDocument(documentId: string, token: string) {
+  return apiRequest<{ message: string; document: Pick<BackendOcrDocument, 'id' | 'fileName'> }>(`/ocr/documents/${documentId}`, {
+    method: 'DELETE',
+    token,
+  });
+}
+
+export async function fetchOcrDocumentFile(documentId: string, token: string) {
+  const response = await fetch(`${apiBaseUrl}/ocr/documents/${documentId}/file`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to load document preview with status ${response.status}`);
+  }
+
+  return response.blob();
+}
+
+export function detectOcrPage(pageId: string, token: string) {
+  return apiRequest<{ jobId: string; quality: BackendOcrQuality; candidates: BackendOcrCandidate[] }>(
+    `/ocr/pages/${pageId}/detect`,
+    {
+      method: 'POST',
+      token,
+    },
+  );
+}
+
+export function checkOcrPageQuality(pageId: string, token: string) {
+  return apiRequest<{ jobId: string; quality: BackendOcrQuality }>(`/ocr/pages/${pageId}/quality-check`, {
+    method: 'POST',
+    token,
+  });
+}
+
+export function extractOcrPage(
+  pageId: string,
+  token: string,
+  input: { templateId?: string; fields: BackendOcrTemplateField[] },
+) {
+  return apiRequest<{ jobId: string; results: BackendOcrResult[] }>(`/ocr/pages/${pageId}/extract`, {
+    method: 'POST',
+    token,
+    body: input,
+  });
+}
+
+export function fetchOcrJob(jobId: string, token: string) {
+  return apiRequest<{ job: BackendOcrJob }>(`/ocr/jobs/${jobId}`, { token });
+}
+
+export function fetchOcrTemplates(token: string, options: { includeArchived?: boolean } = {}) {
+  const query = options.includeArchived ? '?includeArchived=true' : '';
+  return apiRequest<{ templates: BackendOcrTemplate[] }>(`/ocr/templates${query}`, { token });
+}
+
+export function createOcrTemplate(
+  token: string,
+  input: {
+    name: string;
+    description?: string;
+    anchorConfig?: Record<string, unknown>;
+    fields: BackendOcrTemplateField[];
+  },
+) {
+  return apiRequest<{ message: string; template: BackendOcrTemplate }>('/ocr/templates', {
+    method: 'POST',
+    token,
+    body: input,
+  });
+}
+
+export function updateOcrTemplate(templateId: string, token: string, input: { name: string }) {
+  return apiRequest<{ message: string; template: BackendOcrTemplate }>(`/ocr/templates/${templateId}`, {
+    method: 'PATCH',
+    token,
+    body: input,
+  });
+}
+
+export function duplicateOcrTemplate(templateId: string, token: string, input: { name?: string } = {}) {
+  return apiRequest<{ message: string; template: BackendOcrTemplate }>(`/ocr/templates/${templateId}/duplicate`, {
+    method: 'POST',
+    token,
+    body: input,
+  });
+}
+
+export function archiveOcrTemplate(templateId: string, token: string) {
+  return apiRequest<{ message: string; template: BackendOcrTemplate }>(`/ocr/templates/${templateId}/archive`, {
+    method: 'POST',
+    token,
+  });
+}
+
+export function restoreOcrTemplate(templateId: string, token: string) {
+  return apiRequest<{ message: string; template: BackendOcrTemplate }>(`/ocr/templates/${templateId}/restore`, {
+    method: 'POST',
+    token,
+  });
+}
+
+export function applyOcrTemplate(templateId: string, pageId: string, token: string) {
+  return apiRequest<{
+    template: Omit<BackendOcrTemplate, 'fields'>;
+    fields: BackendOcrTemplateField[];
+    matchStatus: string;
+    warnings: string[];
+  }>(`/ocr/templates/${templateId}/apply`, {
+    method: 'POST',
+    token,
+    body: {
+      pageId,
+    },
+  });
+}
+
+export function exportOcrDocument(documentId: string, token: string) {
+  return apiRequest<{
+    document: {
+      id: string;
+      fileName: string;
+    };
+    header: string[];
+    rows: Array<Record<string, string | number>>;
+    csvContent: string;
+  }>('/ocr/export', {
+    method: 'POST',
+    token,
+    body: {
+      documentId,
+    },
+  });
+}
+
+export function updateOcrResult(resultId: string, finalText: string, token: string) {
+  return apiRequest<{ message: string; result: BackendOcrResult }>(`/ocr/results/${resultId}`, {
+    method: 'PATCH',
+    token,
+    body: {
+      finalText,
+      confirmedByUser: true,
+    },
   });
 }
 

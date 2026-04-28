@@ -45,6 +45,51 @@ enum OutboundStatus {
   SHIPPED
 }
 
+enum OcrDocumentKind {
+  IMAGE
+  PDF
+}
+
+enum OcrDocumentStatus {
+  UPLOADED
+  READY
+  FAILED
+  ARCHIVED
+}
+
+enum OcrJobType {
+  DETECT
+  EXTRACT
+}
+
+enum OcrJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum OcrFieldType {
+  TEXT
+  NUMBER
+  DATE
+  PHONE
+  CODE
+  CONTAINER_NO
+}
+
+enum OcrRiskLevel {
+  NORMAL
+  REVIEW
+  HIGH_RISK
+}
+
+enum OcrValidationStatus {
+  NOT_RUN
+  PASSED
+  FAILED
+}
+
 model User {
   id                   String   @id @default(cuid())
   name                 String?
@@ -64,6 +109,9 @@ model User {
   inboundOrdersApproved InboundOrder[] @relation("InboundApprovedBy")
   outboundOrdersCreated OutboundOrder[] @relation("OutboundCreatedBy")
   outboundOrdersApproved OutboundOrder[] @relation("OutboundApprovedBy")
+  ocrDocumentsUploaded OcrDocument[]
+  ocrTemplatesCreated  OcrTemplate[]
+  ocrJobsRequested     OcrExtractionJob[]
 }
 
 model Product {
@@ -231,4 +279,141 @@ model OutboundLineItem {
 
   @@index([outboundOrderId])
   @@index([productId])
+}
+
+model OcrDocument {
+  id                String            @id @default(cuid())
+  fileName          String
+  originalMimeType  String
+  kind              OcrDocumentKind
+  storagePath       String
+  pageCount         Int               @default(1)
+  status            OcrDocumentStatus @default(UPLOADED)
+  retentionExpiresAt DateTime?
+  uploadedById      String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  uploadedBy        User?             @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  pages             OcrDocumentPage[]
+  jobs              OcrExtractionJob[]
+
+  @@index([uploadedById])
+  @@index([createdAt])
+}
+
+model OcrDocumentPage {
+  id             String             @id @default(cuid())
+  documentId     String
+  pageNumber     Int
+  sourceWidth    Int?
+  sourceHeight   Int?
+  qualityStatus  String?
+  qualityDetails Json?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  document       OcrDocument        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  jobs           OcrExtractionJob[]
+  results        OcrExtractionResult[]
+
+  @@unique([documentId, pageNumber])
+  @@index([documentId])
+}
+
+model OcrTemplate {
+  id           String           @id @default(cuid())
+  name         String
+  description  String?
+  anchorConfig Json?
+  createdById  String?
+  archivedAt   DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  createdBy    User?            @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  fields       OcrTemplateField[]
+  jobs         OcrExtractionJob[]
+
+  @@index([createdById])
+  @@index([archivedAt])
+  @@index([createdAt])
+}
+
+model OcrTemplateField {
+  id              String       @id @default(cuid())
+  templateId      String
+  fieldName       String
+  outputColumn    String
+  fieldType       OcrFieldType @default(TEXT)
+  required        Boolean      @default(false)
+  validationRule  String?
+  riskRule        String?
+  bboxNormalized  Json
+  regionType      String?
+  sortOrder       Int          @default(0)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  template        OcrTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  results         OcrExtractionResult[]
+
+  @@index([templateId, sortOrder])
+}
+
+model OcrExtractionJob {
+  id            String         @id @default(cuid())
+  documentId    String
+  documentPageId String
+  templateId    String?
+  jobType       OcrJobType
+  status        OcrJobStatus   @default(PENDING)
+  requestedById String?
+  resultSummary Json?
+  errorMessage  String?
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  durationMs    Int?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  document      OcrDocument    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  documentPage  OcrDocumentPage @relation(fields: [documentPageId], references: [id], onDelete: Cascade)
+  template      OcrTemplate?   @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  requestedBy   User?          @relation(fields: [requestedById], references: [id], onDelete: SetNull)
+  results       OcrExtractionResult[]
+
+  @@index([documentId])
+  @@index([documentPageId])
+  @@index([requestedById])
+  @@index([status])
+}
+
+model OcrExtractionResult {
+  id               String              @id @default(cuid())
+  jobId            String
+  documentPageId   String
+  templateFieldId  String?
+  fieldName        String
+  outputColumn     String
+  fieldType        OcrFieldType        @default(TEXT)
+  ocrRawText       String?
+  finalText        String?
+  confidence       Float?
+  riskLevel        OcrRiskLevel        @default(REVIEW)
+  validationStatus OcrValidationStatus @default(NOT_RUN)
+  validationMessage String?
+  manuallyEdited   Boolean             @default(false)
+  confirmedByUser  Boolean             @default(false)
+  sourceBbox       Json?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  job              OcrExtractionJob    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  documentPage     OcrDocumentPage     @relation(fields: [documentPageId], references: [id], onDelete: Cascade)
+  templateField    OcrTemplateField?   @relation(fields: [templateFieldId], references: [id], onDelete: SetNull)
+
+  @@index([jobId])
+  @@index([documentPageId])
+  @@index([templateFieldId])
 }

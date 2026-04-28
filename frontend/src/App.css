@@ -2215,6 +2215,63 @@
   gap: 20px;
 }
 
+.admin-shell--ocr {
+  grid-template-columns: 248px minmax(0, 1fr);
+  background: #e9edf5;
+}
+
+.admin-shell--ocr.admin-shell--nav-collapsed {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+
+.admin-shell--ocr.admin-shell--nav-collapsed .admin-sidebar {
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border-right: 0;
+}
+
+.admin-shell--ocr .admin-main {
+  position: relative;
+  padding: 10px;
+}
+
+.admin-shell--ocr .admin-page-header {
+  display: none;
+}
+
+.admin-shell--ocr .admin-page-body {
+  gap: 0;
+}
+
+.ocr-shell-toggle {
+  position: fixed;
+  top: 18px;
+  left: 10px;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 92px;
+  border: 1px solid #d8e1ed;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #334155;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(10px);
+}
+
+.ocr-shell-toggle__icon {
+  width: 16px;
+  height: 16px;
+  transition: transform 160ms ease;
+}
+
+.ocr-shell-toggle__icon.is-open {
+  transform: rotate(180deg);
+}
+
 .admin-inline-note {
   display: inline-flex;
   align-items: center;
