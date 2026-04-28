@@ -8,7 +8,7 @@ RUN sed -i 's|http://deb.debian.org/debian|https://mirrors.cloud.tencent.com/deb
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -i https://mirrors.cloud.tencent.com/pypi/simple --trusted-host mirrors.cloud.tencent.com -r requirements.txt
 
 COPY app.py ./app.py
 
