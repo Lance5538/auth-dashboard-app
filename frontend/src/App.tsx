@@ -6,6 +6,7 @@ import LanguageToggle from './LanguageToggle';
 import {
   fetchInbounds,
   fetchCurrentAuthUser,
+  fetchBackendVersion,
   fetchInventory,
   fetchOutbounds,
   fetchProducts,
@@ -23,6 +24,7 @@ import {
   type BackendWorkspaceUser,
   type BackendWarehouse,
 } from './api';
+import { frontendBuildTime, frontendVersion } from './version';
 import * as ops from './operations';
 import {
   authContentByLocale,
@@ -44,6 +46,13 @@ const registeredEmailStorageKey = 'northline-registered-email';
 const backendCategoryId = 'CAT-BACKEND-01';
 const initialWorkspaceStore = ops.createInitialWorkspaceStore();
 const initialOperationalSelections = ops.createInitialSelections(initialWorkspaceStore);
+
+type VersionInfo = {
+  frontendVersion: string;
+  frontendBuildTime: string;
+  backendVersion?: string;
+  backendBuildTime?: string;
+};
 
 function readRouteFromHash(): Route {
   if (typeof window === 'undefined') {
@@ -388,6 +397,46 @@ function usePrefersReducedMotion() {
   return prefersReducedMotion;
 }
 
+function formatVersionTime(value?: string) {
+  if (!value) {
+    return 'unknown';
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+function VersionBadge({ info }: { info: VersionInfo }) {
+  const backendLabel = info.backendVersion ? `BE ${info.backendVersion}` : 'BE ...';
+  const title = [
+    `Frontend: ${info.frontendVersion}`,
+    `Frontend built: ${info.frontendBuildTime}`,
+    info.backendVersion ? `Backend: ${info.backendVersion}` : 'Backend: loading',
+    info.backendBuildTime ? `Backend built: ${info.backendBuildTime}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  return (
+    <div className="app-version-badge" title={title} aria-label="Application version">
+      <span>FE {info.frontendVersion}</span>
+      <span>{backendLabel}</span>
+      <span>{formatVersionTime(info.frontendBuildTime)}</span>
+    </div>
+  );
+}
+
 function App() {
   const initialRoute = readRouteFromHash();
   const [displayRoute, setDisplayRoute] = useState<Route>(initialRoute);
@@ -399,6 +448,10 @@ function App() {
   const [registeredEmail, setRegisteredEmail] = useState(() => readStoredRegisteredEmail());
   const [authNotice, setAuthNotice] = useState('');
   const [authReady, setAuthReady] = useState(false);
+  const [versionInfo, setVersionInfo] = useState<VersionInfo>({
+    frontendVersion,
+    frontendBuildTime,
+  });
   const [transitionState, setTransitionState] = useState<'idle' | 'exiting' | 'entering'>('idle');
   const [transitionDirection, setTransitionDirection] = useState<'forward' | 'backward'>('forward');
   const prefersReducedMotion = usePrefersReducedMotion();
@@ -609,6 +662,35 @@ function App() {
     window.localStorage.removeItem(registeredEmailStorageKey);
   }, [registeredEmail]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchBackendVersion()
+      .then((backendVersion) => {
+        if (cancelled) {
+          return;
+        }
+
+        setVersionInfo((current) => ({
+          ...current,
+          backendVersion: backendVersion.version,
+          backendBuildTime: backendVersion.buildTime,
+        }));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setVersionInfo((current) => ({
+            ...current,
+            backendVersion: 'offline',
+          }));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const navigate = (nextRoute: Route) => {
     const resolvedRoute = resolveRouteForSession(nextRoute, currentUser);
 
@@ -702,6 +784,7 @@ function App() {
           />
         )}
       </div>
+      <VersionBadge info={versionInfo} />
     </div>
   );
 }

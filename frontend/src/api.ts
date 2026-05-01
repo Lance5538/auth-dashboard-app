@@ -307,6 +307,12 @@ export type BackendOcrJob = {
   results: BackendOcrResult[];
 };
 
+export type BackendVersion = {
+  version: string;
+  buildTime: string;
+  serverStartedAt: string;
+};
+
 type ApiRequestOptions = {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
@@ -334,6 +340,10 @@ async function apiRequest<T>(path: string, options: ApiRequestOptions = {}) {
 
 export function getApiBaseUrl() {
   return apiBaseUrl;
+}
+
+export function fetchBackendVersion() {
+  return apiRequest<BackendVersion>('/version');
 }
 
 export function registerAuthUser(input: { email: string; password: string; name?: string; role?: BackendRole }) {
@@ -475,7 +485,7 @@ export function createOcrTemplate(
   });
 }
 
-export function updateOcrTemplate(templateId: string, token: string, input: { name: string }) {
+export function updateOcrTemplate(templateId: string, token: string, input: { name?: string; anchorConfig?: Record<string, unknown> }) {
   return apiRequest<{ message: string; template: BackendOcrTemplate }>(`/ocr/templates/${templateId}`, {
     method: 'PATCH',
     token,

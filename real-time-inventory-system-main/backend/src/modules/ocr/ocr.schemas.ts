@@ -53,12 +53,14 @@ export const createTemplateSchema = z.object({
         .optional()
         .default([]),
     })
+    .passthrough()
     .optional(),
   fields: z.array(templateFieldInputSchema).min(1, "At least one field is required"),
 });
 
 export const updateTemplateSchema = z.object({
-  name: z.string().min(1, "Template name is required"),
+  name: z.string().min(1, "Template name is required").optional(),
+  anchorConfig: createTemplateSchema.shape.anchorConfig,
 });
 
 export const duplicateTemplateSchema = z.object({

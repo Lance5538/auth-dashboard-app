@@ -155,160 +155,8 @@ function mapTemplate(template: Awaited<ReturnType<typeof prisma.ocrTemplate.find
   };
 }
 
-const productTypeHeader = "Product Type";
-const sharedHeaderNames = ["DN/PL No.", "ETD", "ETA", "Truck No.", "Truck Phone", "Zone", "Manufacturer"];
-const shipmentFieldHeaders = ["Material Name", "Description", "Qty", "Weight"] as const;
-const productSheetNames = ["Tube", "Purlin", "Saddle", "H Beam or Post", "待确认"] as const;
-
-type ShipmentFieldName = (typeof shipmentFieldHeaders)[number];
-type ProductSheetName = (typeof productSheetNames)[number];
-type ClassificationResultInput = {
-  fieldName: string;
-  outputColumn: string;
-  finalText?: string | null;
-  ocrRawText?: string | null;
-  sourceBbox?: Prisma.JsonValue | null;
-};
-
-function normalizeClassificationLabel(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
-function resultText(result: ClassificationResultInput) {
+function resultText(result: { finalText?: string | null; ocrRawText?: string | null }) {
   return result.finalText ?? result.ocrRawText ?? "";
-}
-
-function resultLabels(result: ClassificationResultInput) {
-  return [result.fieldName, result.outputColumn].filter(Boolean);
-}
-
-function detectSharedHeader(result: ClassificationResultInput) {
-  const normalizedLabels = resultLabels(result).map(normalizeClassificationLabel);
-  if (normalizedLabels.some((label) => label.includes("dnpl") || label.includes("dnno") || label.includes("plno"))) return "DN/PL No.";
-  if (normalizedLabels.some((label) => label.includes("etd"))) return "ETD";
-  if (normalizedLabels.some((label) => label.includes("eta"))) return "ETA";
-  if (normalizedLabels.some((label) => label.includes("truckno") || label.includes("trucknumber"))) return "Truck No.";
-  if (normalizedLabels.some((label) => label.includes("truckphone") || label.includes("trucktel") || label.includes("driverphone"))) return "Truck Phone";
-  if (normalizedLabels.some((label) => label.includes("zone"))) return "Zone";
-  if (normalizedLabels.some((label) => label.includes("manufacturer") || label.includes("maker") || label.includes("factory"))) return "Manufacturer";
-  return "";
-}
-
-function detectShipmentField(result: ClassificationResultInput): ShipmentFieldName | "" {
-  const normalizedLabels = resultLabels(result).map(normalizeClassificationLabel);
-  if (normalizedLabels.some((label) => label.includes("materialname") || label === "material")) return "Material Name";
-  if (normalizedLabels.some((label) => label.includes("description") || label === "desc")) return "Description";
-  if (normalizedLabels.some((label) => label.includes("quantity") || label.includes("qty"))) return "Qty";
-  if (normalizedLabels.some((label) => label.includes("weight") || label.includes("wt"))) return "Weight";
-  return "";
-}
-
-function detectBlockSuffix(result: ClassificationResultInput) {
-  for (const label of resultLabels(result)) {
-    const match = label.trim().match(/(?:^|[\s_-])(\d+)$/);
-    if (match) {
-      return match[1];
-    }
-  }
-
-  return "";
-}
-
-function detectProductType(materialName: string, description: string): ProductSheetName {
-  const text = `${materialName} ${description}`.toLowerCase();
-  if (/\btube\b/.test(text)) return "Tube";
-  if (/\bpurlin\b/.test(text)) return "Purlin";
-  if (/\bsaddle\b/.test(text)) return "Saddle";
-  if (/\bh[\s-]*beam\b|\bi[\s-]*beam\b|\bbeam\s*post\b|\bpost\b/.test(text)) return "H Beam or Post";
-  return "待确认";
-}
-
-function sourceBboxY(sourceBbox: Prisma.JsonValue | null | undefined) {
-  if (!sourceBbox || typeof sourceBbox !== "object" || Array.isArray(sourceBbox)) {
-    return null;
-  }
-
-  const y = (sourceBbox as { y?: unknown }).y;
-  return typeof y === "number" ? y : null;
-}
-
-function shipmentBlockKey(result: ClassificationResultInput) {
-  const suffix = detectBlockSuffix(result);
-  if (suffix) {
-    return `suffix:${suffix}`;
-  }
-
-  const y = sourceBboxY(result.sourceBbox);
-  return typeof y === "number" ? `row:${Math.round(y * 20)}` : "row:unknown";
-}
-
-function classifyOcrResults(
-  results: ClassificationResultInput[],
-  metadata: Record<string, string | number>,
-  metadataHeaders: string[],
-) {
-  const sharedHeaders: Record<string, string | number> = {};
-  const shipmentBlocks = new Map<string, Partial<Record<ShipmentFieldName, string | number>>>();
-
-  for (const result of results) {
-    const sharedHeader = detectSharedHeader(result);
-    if (sharedHeader) {
-      sharedHeaders[sharedHeader] = resultText(result);
-      continue;
-    }
-
-    const shipmentField = detectShipmentField(result);
-    if (!shipmentField) {
-      continue;
-    }
-
-    const blockKey = shipmentBlockKey(result);
-    const block = shipmentBlocks.get(blockKey) ?? {};
-    block[shipmentField] = resultText(result);
-    shipmentBlocks.set(blockKey, block);
-  }
-
-  const headers = [...metadataHeaders, productTypeHeader, ...sharedHeaderNames, ...shipmentFieldHeaders];
-  const rows = Array.from(shipmentBlocks.values())
-    .filter((block) => shipmentFieldHeaders.some((header) => String(block[header] ?? "").trim()))
-    .map((block) => {
-      const row: Record<string, string | number> = {
-        ...metadata,
-        [productTypeHeader]: detectProductType(String(block["Material Name"] ?? ""), String(block.Description ?? "")),
-      };
-
-      for (const header of sharedHeaderNames) {
-        row[header] = sharedHeaders[header] ?? "";
-      }
-
-      for (const header of shipmentFieldHeaders) {
-        row[header] = block[header] ?? "";
-      }
-
-      return row;
-    });
-
-  if (rows.length === 0) {
-    const fallbackRow: Record<string, string | number> = {
-      ...metadata,
-      [productTypeHeader]: "待确认",
-    };
-
-    for (const header of sharedHeaderNames) {
-      fallbackRow[header] = sharedHeaders[header] ?? "";
-    }
-
-    for (const header of shipmentFieldHeaders) {
-      fallbackRow[header] = "";
-    }
-
-    return {
-      headers,
-      rows: [fallbackRow],
-    };
-  }
-
-  return { headers, rows };
 }
 
 export class OcrService {
@@ -736,12 +584,19 @@ export class OcrService {
 
   static async updateTemplate(templateId: string, input: UpdateTemplateInput) {
     await this.getTemplate(templateId);
+    const data: Prisma.OcrTemplateUpdateInput = {};
+
+    if (input.name !== undefined) {
+      data.name = input.name;
+    }
+
+    if (input.anchorConfig !== undefined) {
+      data.anchorConfig = toJsonValue(input.anchorConfig);
+    }
 
     return prisma.ocrTemplate.update({
       where: { id: templateId },
-      data: {
-        name: input.name,
-      },
+      data,
       include: {
         fields: {
           orderBy: {
@@ -880,13 +735,18 @@ export class OcrService {
     });
 
     const metadataHeaders = ["pageNumber"];
-    const headerSet = new Set<string>([...metadataHeaders, productTypeHeader, ...shipmentFieldHeaders]);
+    const headerSet = new Set<string>(metadataHeaders);
     const rows: Array<Record<string, string | number>> = [];
 
     for (const page of pagesWithLatestExtractJob) {
-      const classified = classifyOcrResults(page.jobs[0]?.results ?? [], { pageNumber: page.pageNumber }, metadataHeaders);
-      classified.headers.forEach((column) => headerSet.add(column));
-      rows.push(...classified.rows);
+      const row: Record<string, string | number> = { pageNumber: page.pageNumber };
+
+      for (const result of page.jobs[0]?.results ?? []) {
+        headerSet.add(result.outputColumn);
+        row[result.outputColumn] = resultText(result);
+      }
+
+      rows.push(row);
     }
 
     const header = Array.from(headerSet);

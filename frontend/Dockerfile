@@ -8,9 +8,11 @@ RUN npm ci
 COPY . .
 
 ARG VITE_API_BASE_URL=/api
+ARG VITE_APP_VERSION=local
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+ENV VITE_APP_VERSION=${VITE_APP_VERSION}
 
-RUN npm run build
+RUN VITE_BUILD_TIME="$(date -u +"%Y-%m-%dT%H:%M:%SZ")" npm run build
 
 FROM nginx:1.27-alpine
 

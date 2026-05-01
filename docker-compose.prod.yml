@@ -17,6 +17,8 @@ services:
   backend:
     build:
       context: ./real-time-inventory-system-main/backend
+      args:
+        APP_VERSION: ${APP_VERSION:-ocr-rule-library-20260501}
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -49,6 +51,7 @@ services:
       context: ./frontend
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+        VITE_APP_VERSION: ${APP_VERSION:-ocr-rule-library-20260501}
     restart: unless-stopped
     depends_on:
       - backend

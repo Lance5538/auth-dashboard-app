@@ -5,6 +5,7 @@ import morgan from "morgan";
 import swaggerUi from "swagger-ui-express";
 import YAML from "yamljs";
 import path from "path";
+import fs from "fs";
 
 import authRoutes from "./modules/auth/auth.routes";
 import productRoutes from "./modules/products/product.routes";
@@ -21,6 +22,17 @@ const app = express();
 
 const openApiPath = path.join(process.cwd(), "openapi.yaml");
 const swaggerDocument = YAML.load(openApiPath);
+const serverStartedAt = new Date().toISOString();
+
+function readBuildTime() {
+  const buildTimePath = path.join(process.cwd(), "build-time.txt");
+
+  try {
+    return fs.readFileSync(buildTimePath, "utf8").trim() || serverStartedAt;
+  } catch {
+    return serverStartedAt;
+  }
+}
 
 app.use(helmet());
 app.use(cors());
@@ -31,6 +43,14 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 app.get("/health", (_req, res) => {
   res.status(200).json({ status: "ok" });
+});
+
+app.get("/version", (_req, res) => {
+  res.status(200).json({
+    version: process.env.APP_VERSION || "ocr-rule-library-20260501-local",
+    buildTime: readBuildTime(),
+    serverStartedAt,
+  });
 });
 
 app.use("/auth", authRoutes);

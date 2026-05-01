@@ -64,7 +64,7 @@ type PaneResizeState =
     }
   | null;
 
-type ResultViewMode = 'single' | 'batch';
+type ResultViewMode = 'single' | 'batch' | 'processed';
 
 type ResultsResizeState =
   | {
@@ -80,6 +80,26 @@ type ParsedValidationRule = {
   requiredKeywords: string[];
 };
 
+type ProcessingColumnMode = 'shared' | 'detail';
+
+type ProcessingTemplateColumn = {
+  id: string;
+  outputColumn: string;
+  mode: ProcessingColumnMode;
+  sourcePattern: string;
+};
+
+type ProcessingTemplateConfig = {
+  columns: ProcessingTemplateColumn[];
+};
+
+type ProcessingRule = {
+  id: string;
+  name: string;
+  columns: ProcessingTemplateColumn[];
+  updatedAt: string;
+};
+
 const fieldTypes: OcrFieldType[] = ['TEXT', 'NUMBER', 'DATE', 'PHONE', 'CODE', 'CONTAINER_NO'];
 const minSelectionSize = 0.01;
 const fieldPalette = ['#2563eb', '#dc2626', '#059669', '#d97706', '#7c3aed', '#0891b2', '#be123c', '#4f46e5'];
@@ -88,23 +108,12 @@ const maxLeftPaneWidth = 360;
 const minRightPaneWidth = 280;
 const maxRightPaneWidth = 460;
 const minResultsPaneHeight = 220;
-const maxResultsPaneHeight = 320;
+const maxResultsPaneHeight = 520;
 const resultPageSize = 20;
 const batchMetadataColumnCount = 4;
-const productTypeHeader = 'Product Type';
-const sharedHeaderNames = ['DN/PL No.', 'ETD', 'ETA', 'Truck No.', 'Truck Phone', 'Zone', 'Manufacturer'];
-const shipmentFieldHeaders = ['Material Name', 'Description', 'Qty', 'Weight'];
-const productSheetNames = ['Tube', 'Purlin', 'Saddle', 'H Beam or Post', '待确认'] as const;
 const templateAspectWarningThreshold = 0.08;
 const moveAllRegionsStep = 0.01;
 let localFieldSeed = 0;
-
-type ProductSheetName = (typeof productSheetNames)[number];
-type ShipmentFieldName = (typeof shipmentFieldHeaders)[number];
-type ProductClassificationResult = {
-  headers: string[];
-  rows: Array<Record<string, string | number>>;
-};
 
 function t<T>(locale: AuthLocale, zh: T, en: T) {
   return locale === 'zh' ? zh : en;
@@ -489,169 +498,304 @@ function downloadWorkbook(fileName: string, headers: string[], rows: Array<Recor
   writeFile(workbook, fileName);
 }
 
-function appendWorkbookSheet(workbook: ReturnType<typeof utils.book_new>, sheetName: string, headers: string[], rows: Array<Record<string, string | number>>) {
-  const normalizedRows = rows.map((row) =>
-    headers.reduce<Record<string, string | number>>((accumulator, header) => {
-      const value = row[header];
-      accumulator[header] = typeof value === 'number' ? value : value ?? '';
-      return accumulator;
-    }, {}),
-  );
-  const worksheet = utils.json_to_sheet(normalizedRows, { header: headers });
-  utils.book_append_sheet(workbook, worksheet, sheetName);
-}
-
-function downloadProductWorkbook(fileName: string, headers: string[], rows: Array<Record<string, string | number>>) {
-  const workbook = utils.book_new();
-  const rowsBySheet = new Map<ProductSheetName, Array<Record<string, string | number>>>();
-  for (const sheetName of productSheetNames) {
-    rowsBySheet.set(sheetName, []);
-  }
-
-  for (const row of rows) {
-    const productType = productSheetNames.includes(row[productTypeHeader] as ProductSheetName)
-      ? (row[productTypeHeader] as ProductSheetName)
-      : '待确认';
-    rowsBySheet.get(productType)?.push(row);
-  }
-
-  for (const sheetName of productSheetNames) {
-    appendWorkbookSheet(workbook, sheetName, headers, rowsBySheet.get(sheetName) ?? []);
-  }
-
-  writeFile(workbook, fileName);
-}
-
-function normalizeClassificationLabel(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
-}
-
 function resultText(result: Pick<BackendOcrResult, 'finalText' | 'ocrRawText'>) {
   return result.finalText ?? result.ocrRawText ?? '';
 }
 
-function resultLabels(result: Pick<BackendOcrResult, 'fieldName' | 'outputColumn'>) {
-  return [result.fieldName, result.outputColumn].filter(Boolean);
-}
-
-function detectSharedHeader(result: Pick<BackendOcrResult, 'fieldName' | 'outputColumn'>) {
-  const normalizedLabels = resultLabels(result).map(normalizeClassificationLabel);
-  if (normalizedLabels.some((label) => label.includes('dnpl') || label.includes('dnno') || label.includes('plno'))) return 'DN/PL No.';
-  if (normalizedLabels.some((label) => label.includes('etd'))) return 'ETD';
-  if (normalizedLabels.some((label) => label.includes('eta'))) return 'ETA';
-  if (normalizedLabels.some((label) => label.includes('truckno') || label.includes('trucknumber'))) return 'Truck No.';
-  if (normalizedLabels.some((label) => label.includes('truckphone') || label.includes('trucktel') || label.includes('driverphone'))) return 'Truck Phone';
-  if (normalizedLabels.some((label) => label.includes('zone'))) return 'Zone';
-  if (normalizedLabels.some((label) => label.includes('manufacturer') || label.includes('maker') || label.includes('factory'))) return 'Manufacturer';
-  return '';
-}
-
-function detectShipmentField(result: Pick<BackendOcrResult, 'fieldName' | 'outputColumn'>): ShipmentFieldName | '' {
-  const normalizedLabels = resultLabels(result).map(normalizeClassificationLabel);
-  if (normalizedLabels.some((label) => label.includes('materialname') || label === 'material')) return 'Material Name';
-  if (normalizedLabels.some((label) => label.includes('description') || label === 'desc')) return 'Description';
-  if (normalizedLabels.some((label) => label.includes('quantity') || label.includes('qty'))) return 'Qty';
-  if (normalizedLabels.some((label) => label.includes('weight') || label.includes('wt'))) return 'Weight';
-  return '';
-}
-
-function detectBlockSuffix(result: Pick<BackendOcrResult, 'fieldName' | 'outputColumn'>) {
-  for (const label of resultLabels(result)) {
-    const match = label.trim().match(/(?:^|[\s_-])(\d+)$/);
-    if (match) {
-      return match[1];
-    }
-  }
-
-  return '';
-}
-
-function detectProductType(materialName: string, description: string): ProductSheetName {
-  const text = `${materialName} ${description}`.toLowerCase();
-  if (/\btube\b/.test(text)) return 'Tube';
-  if (/\bpurlin\b/.test(text)) return 'Purlin';
-  if (/\bsaddle\b/.test(text)) return 'Saddle';
-  if (/\bh[\s-]*beam\b|\bi[\s-]*beam\b|\bbeam\s*post\b|\bpost\b/.test(text)) return 'H Beam or Post';
-  return '待确认';
-}
-
-function shipmentBlockKey(result: BackendOcrResult) {
-  const suffix = detectBlockSuffix(result);
-  if (suffix) {
-    return `suffix:${suffix}`;
-  }
-
-  const y = result.sourceBbox?.y;
-  return typeof y === 'number' ? `row:${Math.round(y * 20)}` : 'row:unknown';
-}
-
-function classifyOcrResults(
+function buildRawOcrRow(
   results: BackendOcrResult[],
   metadata: Record<string, string | number>,
-  metadataHeaders: string[],
-): ProductClassificationResult {
-  const sharedHeaders: Record<string, string | number> = {};
-  const shipmentBlocks = new Map<string, Partial<Record<ShipmentFieldName, string | number>>>();
+  pageFields: BackendOcrTemplateField[],
+) {
+  const headers = buildFieldHeaders(pageFields);
+  const row: Record<string, string | number> = { ...metadata };
 
-  for (const result of results) {
-    const sharedHeader = detectSharedHeader(result);
-    if (sharedHeader) {
-      sharedHeaders[sharedHeader] = resultText(result);
-      continue;
-    }
-
-    const shipmentField = detectShipmentField(result);
-    if (!shipmentField) {
-      continue;
-    }
-
-    const blockKey = shipmentBlockKey(result);
-    const block = shipmentBlocks.get(blockKey) ?? {};
-    block[shipmentField] = resultText(result);
-    shipmentBlocks.set(blockKey, block);
+  for (const header of headers) {
+    row[header] = '';
   }
 
-  const headers = [...metadataHeaders, productTypeHeader, ...sharedHeaderNames, ...shipmentFieldHeaders];
-  const rows = Array.from(shipmentBlocks.values())
-    .filter((block) => shipmentFieldHeaders.some((header) => String(block[header] ?? '').trim()))
-    .map((block) => {
-      const row: Record<string, string | number> = {
-        ...metadata,
-        [productTypeHeader]: detectProductType(String(block['Material Name'] ?? ''), String(block.Description ?? '')),
-      };
+  for (const result of orderResultsByFields(results, pageFields)) {
+    row[result.outputColumn] = resultText(result);
+  }
 
-      for (const header of sharedHeaderNames) {
-        row[header] = sharedHeaders[header] ?? '';
+  return { headers, row };
+}
+
+function createProcessingColumn(outputColumn: string, mode: ProcessingColumnMode, sourcePattern = outputColumn): ProcessingTemplateColumn {
+  return {
+    id: createLocalFieldId(),
+    outputColumn,
+    mode,
+    sourcePattern,
+  };
+}
+
+function cloneProcessingColumns(columns: ProcessingTemplateColumn[]) {
+  return columns.map((column) => ({ ...column, id: createLocalFieldId() }));
+}
+
+function normalizeProcessingTemplate(rawTemplate: unknown): ProcessingTemplateConfig {
+  if (!rawTemplate || typeof rawTemplate !== 'object' || Array.isArray(rawTemplate)) {
+    return { columns: [] };
+  }
+
+  const rawColumns = (rawTemplate as { columns?: unknown }).columns;
+  if (!Array.isArray(rawColumns)) {
+    return { columns: [] };
+  }
+
+  return {
+    columns: rawColumns
+      .map((rawColumn, index) => {
+        if (!rawColumn || typeof rawColumn !== 'object' || Array.isArray(rawColumn)) {
+          return null;
+        }
+
+        const column = rawColumn as Record<string, unknown>;
+        const outputColumn = String(column.outputColumn ?? '').trim();
+        const sourcePattern = String(column.sourcePattern ?? '').trim();
+        if (!outputColumn || !sourcePattern) {
+          return null;
+        }
+
+        return {
+          id: String(column.id ?? `processing-column-${index}`),
+          outputColumn,
+          mode: column.mode === 'detail' ? 'detail' : 'shared',
+          sourcePattern,
+        } satisfies ProcessingTemplateColumn;
+      })
+      .filter((column): column is ProcessingTemplateColumn => Boolean(column)),
+  };
+}
+
+function processingTemplateFromAnchor(anchorConfig?: Record<string, unknown> | null): ProcessingTemplateConfig {
+  return normalizeProcessingTemplate(anchorConfig?.processingTemplate);
+}
+
+function processingRuleLibraryFromAnchor(anchorConfig?: Record<string, unknown> | null): ProcessingRule[] {
+  const rawLibrary = anchorConfig?.processingRuleLibrary;
+  const rawRules =
+    rawLibrary && typeof rawLibrary === 'object' && !Array.isArray(rawLibrary) ? (rawLibrary as { rules?: unknown }).rules : undefined;
+
+  const rules = Array.isArray(rawRules)
+    ? rawRules
+        .map((rawRule, index) => {
+          if (!rawRule || typeof rawRule !== 'object' || Array.isArray(rawRule)) {
+            return null;
+          }
+
+          const rule = rawRule as Record<string, unknown>;
+          const template = normalizeProcessingTemplate({ columns: rule.columns });
+          const name = String(rule.name ?? '').trim() || `规则 ${index + 1}`;
+          if (template.columns.length === 0) {
+            return null;
+          }
+
+          return {
+            id: String(rule.id ?? `processing-rule-${index}`),
+            name,
+            columns: template.columns,
+            updatedAt: String(rule.updatedAt ?? ''),
+          } satisfies ProcessingRule;
+        })
+        .filter((rule): rule is ProcessingRule => Boolean(rule))
+    : [];
+
+  if (rules.length > 0) {
+    return rules;
+  }
+
+  const legacyTemplate = processingTemplateFromAnchor(anchorConfig);
+  if (legacyTemplate.columns.length === 0) {
+    return [];
+  }
+
+  return [
+    {
+      id: 'legacy-default-processing-rule',
+      name: '默认规则',
+      columns: legacyTemplate.columns,
+      updatedAt: '',
+    },
+  ];
+}
+
+function normalizeHeaderKey(header: string) {
+  return header.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function splitNumberedHeader(header: string) {
+  const match = header.trim().match(/^(.+?)(?:[_\s-]?)(\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  const prefix = match[1].replace(/[_\s-]+$/g, '');
+  return prefix ? { prefix, index: match[2] } : null;
+}
+
+function outputColumnFromPrefix(prefix: string) {
+  return sanitizeExportFileName(prefix)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function suggestProcessingTemplate(headers: string[]): ProcessingTemplateConfig {
+  const metadataKeys = new Set(['filename', 'file', 'pagenumber', 'page', 'status', 'message']);
+  const columns: ProcessingTemplateColumn[] = [];
+  const usedOutputs = new Set<string>();
+  const repeatedPrefixes = new Map<string, number>();
+
+  for (const header of headers) {
+    const split = splitNumberedHeader(header);
+    if (split) {
+      repeatedPrefixes.set(split.prefix, (repeatedPrefixes.get(split.prefix) ?? 0) + 1);
+    }
+  }
+
+  for (const header of headers) {
+    const normalized = normalizeHeaderKey(header);
+    if (metadataKeys.has(normalized)) {
+      continue;
+    }
+
+    const isSharedSuggestion =
+      normalized.includes('blpl') ||
+      normalized.includes('blnumber') ||
+      normalized.includes('dnnumber') ||
+      normalized.includes('dnno') ||
+      normalized.includes('truckno') ||
+      normalized.includes('truckphone') ||
+      normalized.includes('container');
+
+    if (isSharedSuggestion && !usedOutputs.has(header)) {
+      columns.push(createProcessingColumn(header, 'shared', header));
+      usedOutputs.add(header);
+    }
+  }
+
+  for (const [prefix, count] of repeatedPrefixes) {
+    if (count < 2) {
+      continue;
+    }
+
+    const normalized = normalizeHeaderKey(prefix);
+    const shouldSuggestDetail = normalized.includes('product') || normalized.includes('description') || normalized.includes('material');
+    if (!shouldSuggestDetail) {
+      continue;
+    }
+
+    const outputColumn = outputColumnFromPrefix(prefix);
+    if (outputColumn && !usedOutputs.has(outputColumn)) {
+      columns.push(createProcessingColumn(outputColumn, 'detail', `${prefix}_*`));
+      usedOutputs.add(outputColumn);
+    }
+  }
+
+  return { columns };
+}
+
+function mergeProcessingTemplateColumns(currentTemplate: ProcessingTemplateConfig, suggestion: ProcessingTemplateConfig): ProcessingTemplateConfig {
+  const mergedColumns = [...currentTemplate.columns];
+  const existingKeys = new Set(
+    mergedColumns.map((column) => `${normalizeHeaderKey(column.outputColumn)}:${column.mode}:${normalizeHeaderKey(column.sourcePattern)}`),
+  );
+
+  for (const column of suggestion.columns) {
+    const key = `${normalizeHeaderKey(column.outputColumn)}:${column.mode}:${normalizeHeaderKey(column.sourcePattern)}`;
+    if (!existingKeys.has(key)) {
+      mergedColumns.push(column);
+      existingKeys.add(key);
+    }
+  }
+
+  return { columns: mergedColumns };
+}
+
+function detailHeaderForPattern(pattern: string, index: string) {
+  return pattern.includes('*') ? pattern.replace(/\*/g, index) : pattern;
+}
+
+function collectDetailIndexes(row: Record<string, string | number>, columns: ProcessingTemplateColumn[]) {
+  const indexes = new Set<string>();
+
+  for (const column of columns) {
+    if (column.mode !== 'detail' || !column.sourcePattern.includes('*')) {
+      continue;
+    }
+
+    const exactPattern = column.sourcePattern
+      .split('*')
+      .map((part) => escapeRegExp(part))
+      .join('(\\d+)');
+    const exactMatcher = new RegExp(`^${exactPattern}$`, 'i');
+
+    const normalizedPattern = column.sourcePattern
+      .split('*')
+      .map((part) => escapeRegExp(normalizeHeaderKey(part)))
+      .join('(\\d+)');
+    const normalizedMatcher = new RegExp(`^${normalizedPattern}$`, 'i');
+
+    Object.keys(row).forEach((header) => {
+      const match = header.match(exactMatcher) ?? normalizeHeaderKey(header).match(normalizedMatcher);
+      if (match?.[1]) {
+        indexes.add(match[1]);
       }
-
-      for (const header of shipmentFieldHeaders) {
-        row[header] = block[header] ?? '';
-      }
-
-      return row;
     });
-
-  if (rows.length === 0) {
-    const fallbackRow: Record<string, string | number> = {
-      ...metadata,
-      [productTypeHeader]: '待确认',
-    };
-
-    for (const header of sharedHeaderNames) {
-      fallbackRow[header] = sharedHeaders[header] ?? '';
-    }
-
-    for (const header of shipmentFieldHeaders) {
-      fallbackRow[header] = '';
-    }
-
-    return {
-      headers,
-      rows: [fallbackRow],
-    };
   }
 
-  return { headers, rows };
+  return Array.from(indexes).sort((left, right) => Number(left) - Number(right));
+}
+
+function valueFromRawRow(row: Record<string, string | number>, sourceHeader: string) {
+  if (sourceHeader in row) {
+    return row[sourceHeader] ?? '';
+  }
+
+  const normalizedSource = normalizeHeaderKey(sourceHeader);
+  const matchedHeader = Object.keys(row).find((header) => normalizeHeaderKey(header) === normalizedSource);
+  return matchedHeader ? row[matchedHeader] ?? '' : '';
+}
+
+function buildProcessedRows(rawRows: Array<Record<string, string | number>>, template: ProcessingTemplateConfig) {
+  const outputHeaders = template.columns.map((column) => column.outputColumn).filter(Boolean);
+  const detailColumns = template.columns.filter((column) => column.mode === 'detail');
+  const processedRows: Array<Record<string, string | number>> = [];
+
+  for (const rawRow of rawRows) {
+    const detailIndexes = collectDetailIndexes(rawRow, detailColumns);
+    const indexes = detailColumns.length === 0 ? [''] : detailIndexes.length > 0 ? detailIndexes : [''];
+
+    for (const detailIndex of indexes) {
+      const processedRow: Record<string, string | number> = {};
+      let hasDetailValue = detailColumns.length === 0;
+
+      for (const column of template.columns) {
+        const sourceHeader = column.mode === 'detail' ? detailHeaderForPattern(column.sourcePattern, detailIndex) : column.sourcePattern;
+        const value = valueFromRawRow(rawRow, sourceHeader);
+        processedRow[column.outputColumn] = value;
+
+        if (column.mode === 'detail' && String(value).trim()) {
+          hasDetailValue = true;
+        }
+      }
+
+      if (hasDetailValue) {
+        processedRows.push(processedRow);
+      }
+    }
+  }
+
+  return {
+    headers: outputHeaders,
+    rows: processedRows,
+  };
 }
 
 function formatExportDate(date = new Date()) {
@@ -745,10 +889,16 @@ export default function OcrWorkbench({ locale, sessionToken }: OcrWorkbenchProps
   const [leftPaneWidth, setLeftPaneWidth] = useState(220);
   const [rightPaneWidth, setRightPaneWidth] = useState(330);
   const [paneResizeState, setPaneResizeState] = useState<PaneResizeState>(null);
-  const [resultsPaneHeight, setResultsPaneHeight] = useState(260);
+  const [resultsPaneHeight, setResultsPaneHeight] = useState(360);
   const [resultsResizeState, setResultsResizeState] = useState<ResultsResizeState>(null);
   const [batchRows, setBatchRows] = useState<Array<Record<string, string | number>>>([]);
   const [batchHeaders, setBatchHeaders] = useState<string[]>([]);
+  const [processingTemplate, setProcessingTemplate] = useState<ProcessingTemplateConfig>({ columns: [] });
+  const [showProcessingTemplatePanel, setShowProcessingTemplatePanel] = useState(false);
+  const [processingRuleLibrary, setProcessingRuleLibrary] = useState<ProcessingRule[]>([]);
+  const [selectedProcessingRuleId, setSelectedProcessingRuleId] = useState('');
+  const [processedHeaders, setProcessedHeaders] = useState<string[]>([]);
+  const [processedRows, setProcessedRows] = useState<Array<Record<string, string | number>>>([]);
   const [resultViewMode, setResultViewMode] = useState<ResultViewMode>('single');
   const [resultPage, setResultPage] = useState(1);
   const [batchProgress, setBatchProgress] = useState<{ completed: number; total: number } | null>(null);
@@ -774,18 +924,20 @@ export default function OcrWorkbench({ locale, sessionToken }: OcrWorkbenchProps
   const selectedField = selectedFieldIndex >= 0 ? fields[selectedFieldIndex] : null;
   const selectedFieldRule = selectedField ? parseValidationRule(selectedField.validationRule) : { requiredKeywords: [] };
   const busy = Boolean(busyAction);
-  const visibleResultCount = resultViewMode === 'batch' ? batchRows.length : results.length;
+  const visibleResultCount = resultViewMode === 'processed' ? processedRows.length : resultViewMode === 'batch' ? batchRows.length : results.length;
   const resultPageCount = Math.max(1, Math.ceil(visibleResultCount / resultPageSize));
   const currentResultPage = clamp(resultPage, 1, resultPageCount);
   const resultStartIndex = visibleResultCount === 0 ? 0 : (currentResultPage - 1) * resultPageSize + 1;
   const resultEndIndex = Math.min(visibleResultCount, currentResultPage * resultPageSize);
   const visibleBatchRows = batchRows.slice(resultStartIndex > 0 ? resultStartIndex - 1 : 0, resultEndIndex);
+  const visibleProcessedRows = processedRows.slice(resultStartIndex > 0 ? resultStartIndex - 1 : 0, resultEndIndex);
   const visibleResults = results.slice(resultStartIndex > 0 ? resultStartIndex - 1 : 0, resultEndIndex);
   const selectedBatchDocuments = documents.filter((documentItem) => selectedBatchDocumentIds.includes(documentItem.id));
   const batchTargetDocuments = selectedBatchDocuments.length > 0 ? selectedBatchDocuments : selectedDocument ? [selectedDocument] : [];
   const activeTemplates = templates.filter((template) => !template.archivedAt);
   const archivedTemplates = templates.filter((template) => template.archivedAt);
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) ?? null;
+  const selectedProcessingRule = processingRuleLibrary.find((rule) => rule.id === selectedProcessingRuleId) ?? null;
   const modeHint =
     interactionMode === 'draw'
       ? t(locale, '拖拽创建新选区，松手后可在右侧填写预输入和规则。', 'Drag on the canvas to create a region, then fill pre-input and rules on the right.')
@@ -849,6 +1001,21 @@ export default function OcrWorkbench({ locale, sessionToken }: OcrWorkbenchProps
   useEffect(() => {
     setSelectedBatchDocumentIds((currentIds) => currentIds.filter((documentId) => documents.some((documentItem) => documentItem.id === documentId)));
   }, [documents]);
+
+  useEffect(() => {
+    const nextLibrary = processingRuleLibraryFromAnchor(selectedTemplate?.anchorConfig);
+    const nextTemplate = processingTemplateFromAnchor(selectedTemplate?.anchorConfig);
+    const defaultRule = nextLibrary[0] ?? null;
+
+    setProcessingRuleLibrary(nextLibrary);
+    setSelectedProcessingRuleId(defaultRule?.id ?? '');
+    setProcessingTemplate(nextTemplate.columns.length > 0 ? nextTemplate : defaultRule ? { columns: cloneProcessingColumns(defaultRule.columns) } : { columns: [] });
+    setProcessedHeaders([]);
+    setProcessedRows([]);
+    if (resultViewMode === 'processed') {
+      setResultViewMode('batch');
+    }
+  }, [selectedTemplateId]);
 
   useEffect(() => {
     if (!paneResizeState) {
@@ -1027,12 +1194,232 @@ export default function OcrWorkbench({ locale, sessionToken }: OcrWorkbenchProps
         return currentHeaders;
       }
 
-      if (currentHeaders.includes(productTypeHeader)) {
-        return currentHeaders;
-      }
-
       return [...currentHeaders.slice(0, batchMetadataColumnCount), ...buildFieldHeaders(nextFields)];
     });
+  }
+
+  function handleSuggestProcessingTemplate() {
+    if (batchHeaders.length === 0) {
+      return;
+    }
+
+    const suggestion = suggestProcessingTemplate(batchHeaders);
+    setProcessingTemplate((currentTemplate) => mergeProcessingTemplateColumns(currentTemplate, suggestion));
+    setProcessedHeaders([]);
+    setProcessedRows([]);
+    setShowProcessingTemplatePanel(true);
+    setNotice(t(locale, '已根据当前批量结果补全建议规则，可继续新增或调整。', 'Suggested processing rules were added from the current batch results.'));
+  }
+
+  function updateProcessingColumn(columnId: string, patch: Partial<Omit<ProcessingTemplateColumn, 'id'>>) {
+    setProcessingTemplate((currentTemplate) => ({
+      columns: currentTemplate.columns.map((column) => (column.id === columnId ? { ...column, ...patch } : column)),
+    }));
+    setProcessedHeaders([]);
+    setProcessedRows([]);
+  }
+
+  function addProcessingColumn() {
+    const defaultName = `column_${processingTemplate.columns.length + 1}`;
+    setProcessingTemplate((currentTemplate) => ({
+      columns: [...currentTemplate.columns, createProcessingColumn(defaultName, 'detail', '')],
+    }));
+    setShowProcessingTemplatePanel(true);
+    setProcessedHeaders([]);
+    setProcessedRows([]);
+  }
+
+  function removeProcessingColumn(columnId: string) {
+    setProcessingTemplate((currentTemplate) => ({
+      columns: currentTemplate.columns.filter((column) => column.id !== columnId),
+    }));
+    setProcessedHeaders([]);
+    setProcessedRows([]);
+  }
+
+  function sourceOptionsForProcessing() {
+    const repeatedPrefixes = new Set<string>();
+    for (const header of batchHeaders) {
+      const split = splitNumberedHeader(header);
+      if (split) {
+        repeatedPrefixes.add(`${split.prefix}_*`);
+      }
+    }
+
+    return [...batchHeaders, ...Array.from(repeatedPrefixes).filter((pattern) => !batchHeaders.includes(pattern))];
+  }
+
+  function validProcessingTemplateFromEditor(): ProcessingTemplateConfig {
+    return {
+      columns: processingTemplate.columns.filter((column) => column.outputColumn.trim() && column.sourcePattern.trim()),
+    };
+  }
+
+  function buildProcessingAnchorConfig(nextRules: ProcessingRule[], nextTemplate = validProcessingTemplateFromEditor()) {
+    return {
+      ...(selectedTemplate?.anchorConfig ?? buildTemplateAnchorConfig(previewSize)),
+      processingTemplate: nextTemplate,
+      processingRuleLibrary: {
+        rules: nextRules,
+      },
+    };
+  }
+
+  async function persistProcessingRuleLibrary(nextRules: ProcessingRule[], nextTemplate = validProcessingTemplateFromEditor()) {
+    if (!selectedTemplate) {
+      setErrorMessage(t(locale, '请先选择或保存一个 OCR 预设，再保存规则库。', 'Select or save an OCR preset before saving the rule library.'));
+      return null;
+    }
+
+    setBusyAction('save-processing-rule');
+    setErrorMessage('');
+
+    try {
+      const payload = await updateOcrTemplate(selectedTemplate.id, sessionToken, {
+        anchorConfig: buildProcessingAnchorConfig(nextRules, nextTemplate),
+      });
+      replaceTemplateInList(payload.template);
+      setProcessingRuleLibrary(nextRules);
+      setProcessingTemplate(nextTemplate);
+      return payload.template;
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to save processing rules');
+      return null;
+    } finally {
+      setBusyAction('');
+    }
+  }
+
+  function handleUseProcessingRule(rule: ProcessingRule) {
+    setSelectedProcessingRuleId(rule.id);
+    setProcessingTemplate({ columns: cloneProcessingColumns(rule.columns) });
+    setProcessedHeaders([]);
+    setProcessedRows([]);
+    setShowProcessingTemplatePanel(true);
+    setNotice(t(locale, `已导入规则：${rule.name}`, `Rule imported: ${rule.name}`));
+  }
+
+  function handleGenerateProcessedRows() {
+    const validTemplate = validProcessingTemplateFromEditor();
+
+    if (batchRows.length === 0 || validTemplate.columns.length === 0) {
+      setErrorMessage(t(locale, '请先生成批量结果，并至少配置一个处理列。', 'Generate batch results and configure at least one processing column first.'));
+      return;
+    }
+
+    const processed = buildProcessedRows(batchRows, validTemplate);
+    setProcessingTemplate(validTemplate);
+    setProcessedHeaders(processed.headers);
+    setProcessedRows(processed.rows);
+    setResultViewMode('processed');
+    setResultPage(1);
+    setShowProcessingTemplatePanel(false);
+    setNotice(t(locale, `已生成 ${processed.rows.length} 条处理结果。`, `Generated ${processed.rows.length} processed rows.`));
+  }
+
+  async function handleSaveProcessingRuleAs() {
+    const validTemplate = validProcessingTemplateFromEditor();
+    if (validTemplate.columns.length === 0) {
+      setErrorMessage(t(locale, '请至少配置一个有效输出列后再保存规则。', 'Configure at least one valid output column before saving a rule.'));
+      return;
+    }
+
+    const defaultName = selectedProcessingRule?.name ? `${selectedProcessingRule.name} Copy` : t(locale, '新处理规则', 'New processing rule');
+    const name = window.prompt(t(locale, '请输入规则名称', 'Enter a rule name'), defaultName);
+    if (!name?.trim()) {
+      return;
+    }
+
+    const nextRule: ProcessingRule = {
+      id: createLocalFieldId(),
+      name: name.trim(),
+      columns: cloneProcessingColumns(validTemplate.columns),
+      updatedAt: new Date().toISOString(),
+    };
+    const nextRules = [nextRule, ...processingRuleLibrary];
+    const savedTemplate = await persistProcessingRuleLibrary(nextRules, validTemplate);
+    if (savedTemplate) {
+      setSelectedProcessingRuleId(nextRule.id);
+      setNotice(t(locale, `规则已保存：${nextRule.name}`, `Rule saved: ${nextRule.name}`));
+    }
+  }
+
+  async function handleOverwriteProcessingRule() {
+    const validTemplate = validProcessingTemplateFromEditor();
+    if (!selectedProcessingRule) {
+      await handleSaveProcessingRuleAs();
+      return;
+    }
+
+    if (validTemplate.columns.length === 0) {
+      setErrorMessage(t(locale, '请至少配置一个有效输出列后再覆盖规则。', 'Configure at least one valid output column before overwriting a rule.'));
+      return;
+    }
+
+    const nextRules = processingRuleLibrary.map((rule) =>
+      rule.id === selectedProcessingRule.id
+        ? {
+            ...rule,
+            columns: cloneProcessingColumns(validTemplate.columns),
+            updatedAt: new Date().toISOString(),
+          }
+        : rule,
+    );
+    const savedTemplate = await persistProcessingRuleLibrary(nextRules, validTemplate);
+    if (savedTemplate) {
+      setNotice(t(locale, `规则已覆盖保存：${selectedProcessingRule.name}`, `Rule overwritten: ${selectedProcessingRule.name}`));
+    }
+  }
+
+  async function handleRenameProcessingRule(rule: ProcessingRule) {
+    const name = window.prompt(t(locale, '请输入新的规则名称', 'Enter a new rule name'), rule.name);
+    if (!name?.trim() || name.trim() === rule.name) {
+      return;
+    }
+
+    const nextRules = processingRuleLibrary.map((item) =>
+      item.id === rule.id ? { ...item, name: name.trim(), updatedAt: new Date().toISOString() } : item,
+    );
+    const savedTemplate = await persistProcessingRuleLibrary(nextRules);
+    if (savedTemplate) {
+      setNotice(t(locale, '规则已重命名。', 'Rule renamed.'));
+    }
+  }
+
+  async function handleDuplicateProcessingRule(rule: ProcessingRule) {
+    const name = window.prompt(t(locale, '请输入复制后的规则名称', 'Enter a name for the duplicated rule'), `${rule.name} Copy`);
+    if (name === null) {
+      return;
+    }
+
+    const nextRule: ProcessingRule = {
+      id: createLocalFieldId(),
+      name: name.trim() || `${rule.name} Copy`,
+      columns: cloneProcessingColumns(rule.columns),
+      updatedAt: new Date().toISOString(),
+    };
+    const nextRules = [nextRule, ...processingRuleLibrary];
+    const savedTemplate = await persistProcessingRuleLibrary(nextRules);
+    if (savedTemplate) {
+      setSelectedProcessingRuleId(nextRule.id);
+      setNotice(t(locale, '规则已复制。', 'Rule duplicated.'));
+    }
+  }
+
+  async function handleDeleteProcessingRule(rule: ProcessingRule) {
+    const confirmed = window.confirm(t(locale, `确定删除规则“${rule.name}”吗？`, `Delete rule "${rule.name}"?`));
+    if (!confirmed) {
+      return;
+    }
+
+    const nextRules = processingRuleLibrary.filter((item) => item.id !== rule.id);
+    const savedTemplate = await persistProcessingRuleLibrary(nextRules);
+    if (savedTemplate) {
+      if (selectedProcessingRuleId === rule.id) {
+        setSelectedProcessingRuleId('');
+      }
+      setNotice(t(locale, '规则已删除。当前编辑区内容不会被清空。', 'Rule deleted. The current editor content was kept.'));
+    }
   }
 
   function reorderActivePageFields(nextFields: BackendOcrTemplateField[]) {
@@ -1363,7 +1750,7 @@ export default function OcrWorkbench({ locale, sessionToken }: OcrWorkbenchProps
     const statusHeader = t(locale, '状态', 'Status');
     const messageHeader = t(locale, '说明', 'Message');
     const metadataHeaders = [fileNameHeader, pageHeader, statusHeader, messageHeader];
-    const nextHeaderSet = new Set<string>([...metadataHeaders, productTypeHeader, ...shipmentFieldHeaders]);
+    const nextHeaderSet = new Set<string>(metadataHeaders);
     const totalPages = batchTargetDocuments.reduce((sum, documentItem) => sum + Math.max(documentItem.pageCount, 1), 0);
     const nextRows: Array<Record<string, string | number>> = [];
     let completedPages = 0;
@@ -1396,19 +1783,20 @@ export default function OcrWorkbench({ locale, sessionToken }: OcrWorkbenchProps
               [statusHeader]: t(locale, '完成', 'Done'),
               [messageHeader]: '',
             };
-            const classified = classifyOcrResults(extracted.results, metadata, metadataHeaders);
-            classified.headers.forEach((header) => nextHeaderSet.add(header));
-            nextRows.push(...classified.rows);
+            const rawResult = buildRawOcrRow(extracted.results, metadata, pageFields);
+            rawResult.headers.forEach((header) => nextHeaderSet.add(header));
+            nextRows.push(rawResult.row);
           } catch (error) {
+            const pageFieldHeaders = buildFieldHeaders(pageFields);
             const row: Record<string, string | number> = {
               [fileNameHeader]: documentItem.fileName,
               [pageHeader]: page.pageNumber,
               [statusHeader]: t(locale, '失败', 'Failed'),
               [messageHeader]: error instanceof Error ? error.message : 'Batch OCR failed',
-              [productTypeHeader]: '待确认',
             };
 
-            for (const header of shipmentFieldHeaders) {
+            pageFieldHeaders.forEach((header) => nextHeaderSet.add(header));
+            for (const header of pageFieldHeaders) {
               row[header] = '';
             }
 
@@ -1422,6 +1810,8 @@ export default function OcrWorkbench({ locale, sessionToken }: OcrWorkbenchProps
 
       setBatchHeaders(Array.from(nextHeaderSet));
       setBatchRows(nextRows);
+      setProcessedHeaders([]);
+      setProcessedRows([]);
       setResultViewMode('batch');
       setNotice(
         t(
@@ -1457,7 +1847,13 @@ export default function OcrWorkbench({ locale, sessionToken }: OcrWorkbenchProps
       setErrorMessage('');
       const payload = await createOcrTemplate(sessionToken, {
         name: name.trim(),
-        anchorConfig: buildTemplateAnchorConfig(previewSize),
+        anchorConfig: {
+          ...buildTemplateAnchorConfig(previewSize),
+          processingTemplate,
+          processingRuleLibrary: {
+            rules: processingRuleLibrary,
+          },
+        },
         fields: fields.map((field, index) => ({ ...field, sortOrder: index })),
       });
       setTemplates((currentTemplates) => [payload.template, ...currentTemplates]);
@@ -1596,6 +1992,26 @@ export default function OcrWorkbench({ locale, sessionToken }: OcrWorkbenchProps
   }
 
   async function handleExport() {
+    if (resultViewMode === 'processed' && processedRows.length > 0) {
+      const exportFileName = promptExportFileName('processed');
+      if (!exportFileName) {
+        return;
+      }
+
+      try {
+        setBusyAction('export');
+        setErrorMessage('');
+        downloadWorkbook(exportFileName, processedHeaders, processedRows, 'Processed Results');
+        setExportedFileNames((currentNames) => [...currentNames, exportFileName]);
+        setNotice(t(locale, `处理结果已导出为 ${exportFileName}。`, `Processed results exported as ${exportFileName}.`));
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Failed to export processed results');
+      } finally {
+        setBusyAction('');
+      }
+      return;
+    }
+
     if (resultViewMode === 'batch' && batchRows.length > 0) {
       const exportFileName = promptExportFileName('batch');
       if (!exportFileName) {
@@ -1605,7 +2021,7 @@ export default function OcrWorkbench({ locale, sessionToken }: OcrWorkbenchProps
       try {
         setBusyAction('export');
         setErrorMessage('');
-        downloadProductWorkbook(exportFileName, batchHeaders, batchRows);
+        downloadWorkbook(exportFileName, batchHeaders, batchRows, 'OCR Results');
         setExportedFileNames((currentNames) => [...currentNames, exportFileName]);
         setNotice(t(locale, `批量结果已导出为 ${exportFileName}。`, `Batch results exported as ${exportFileName}.`));
       } catch (error) {
@@ -1629,11 +2045,7 @@ export default function OcrWorkbench({ locale, sessionToken }: OcrWorkbenchProps
       setBusyAction('export');
       setErrorMessage('');
       const payload = await exportOcrDocument(selectedDocument.id, sessionToken);
-      if (payload.header.includes(productTypeHeader)) {
-        downloadProductWorkbook(exportFileName, payload.header, payload.rows);
-      } else {
-        downloadWorkbook(exportFileName, payload.header, payload.rows, 'OCR Results');
-      }
+      downloadWorkbook(exportFileName, payload.header, payload.rows, 'OCR Results');
       setExportedFileNames((currentNames) => [...currentNames, exportFileName]);
       setNotice(t(locale, `结果已导出为 ${exportFileName}。`, `Results exported as ${exportFileName}.`));
     } catch (error) {
@@ -2975,6 +3387,16 @@ export default function OcrWorkbench({ locale, sessionToken }: OcrWorkbenchProps
                 >
                   {t(locale, `批量结果 ${batchRows.length}`, `Batch ${batchRows.length}`)}
                 </button>
+                <button
+                  type="button"
+                  className={`rounded-md px-2.5 py-1 text-xs font-semibold ${
+                    resultViewMode === 'processed' ? 'bg-emerald-600 text-white' : 'border border-slate-200 text-slate-600'
+                  }`}
+                  onClick={() => setResultViewMode('processed')}
+                  disabled={processedRows.length === 0}
+                >
+                  {t(locale, `处理结果 ${processedRows.length}`, `Processed ${processedRows.length}`)}
+                </button>
                 <span className="whitespace-nowrap text-xs font-medium text-slate-500">
                   {visibleResultCount > 0
                     ? t(
@@ -2989,14 +3411,289 @@ export default function OcrWorkbench({ locale, sessionToken }: OcrWorkbenchProps
                 type="button"
                 className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:text-slate-400"
                 onClick={() => void handleExport()}
-                disabled={(resultViewMode === 'batch' ? batchRows.length === 0 : !selectedDocument) || busy}
+                disabled={(resultViewMode === 'processed' ? processedRows.length === 0 : resultViewMode === 'batch' ? batchRows.length === 0 : !selectedDocument) || busy}
               >
                 {t(locale, '导出 XLSX', 'Export XLSX')}
               </button>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-auto">
-              {resultViewMode === 'batch' ? (
+            {batchRows.length > 0 ? (
+              <div className="border-b border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t(locale, '数据处理规则库', 'Processing rule library')}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {t(
+                        locale,
+                        `规则 ${processingRuleLibrary.length} 条，当前 ${processingTemplate.columns.length} 列，处理结果 ${processedRows.length} 条。`,
+                        `${processingRuleLibrary.length} rules, ${processingTemplate.columns.length} current columns, ${processedRows.length} processed rows.`,
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                      onClick={() => setShowProcessingTemplatePanel((current) => !current)}
+                    >
+                      {showProcessingTemplatePanel ? t(locale, '收起规则库', 'Hide library') : t(locale, '规则库', 'Rule library')}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                      onClick={handleSuggestProcessingTemplate}
+                    >
+                      {t(locale, '补全建议规则', 'Suggest rules')}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                      onClick={addProcessingColumn}
+                    >
+                      {t(locale, '新增输出列', 'Add column')}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:bg-slate-300"
+                      onClick={handleGenerateProcessedRows}
+                      disabled={processingTemplate.columns.length === 0}
+                    >
+                      {t(locale, '生成处理结果', 'Generate processed')}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:text-slate-300"
+                      onClick={() => void handleOverwriteProcessingRule()}
+                      disabled={!selectedTemplate || busy}
+                      title={!selectedTemplate ? t(locale, '请先选择或保存一个预设', 'Select or save a preset first') : undefined}
+                    >
+                      {selectedProcessingRule ? t(locale, '覆盖当前规则', 'Overwrite rule') : t(locale, '另存为规则', 'Save as rule')}
+                    </button>
+                  </div>
+                </div>
+
+                {showProcessingTemplatePanel ? (
+                  <>
+                    <p className="mt-2 text-xs text-slate-500">
+                      {t(
+                        locale,
+                        '规则库绑定当前 OCR 预设。先从左侧选择并导入规则，再在右侧编辑输出列和来源字段。',
+                        'The rule library is bound to the current OCR preset. Import a rule on the left, then edit output columns and sources on the right.',
+                      )}
+                    </p>
+
+                    <div className="mt-2 grid max-h-64 gap-3 overflow-auto lg:grid-cols-[260px_minmax(0,1fr)]">
+                      <div className="rounded-md border border-slate-200 bg-white">
+                        <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
+                          <span className="text-xs font-semibold text-slate-600">{t(locale, '当前预设规则', 'Preset rules')}</span>
+                          <button
+                            type="button"
+                            className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 disabled:text-slate-300"
+                            onClick={() => void handleSaveProcessingRuleAs()}
+                            disabled={!selectedTemplate || processingTemplate.columns.length === 0 || busy}
+                          >
+                            {t(locale, '另存', 'Save as')}
+                          </button>
+                        </div>
+
+                        {processingRuleLibrary.length > 0 ? (
+                          <div className="max-h-52 overflow-auto">
+                            {processingRuleLibrary.map((rule) => (
+                              <div key={rule.id} className={`border-b border-slate-100 px-3 py-2 ${rule.id === selectedProcessingRuleId ? 'bg-blue-50' : ''}`}>
+                                <div className="flex items-start justify-between gap-2">
+                                  <button
+                                    type="button"
+                                    className="min-w-0 text-left text-xs font-semibold text-slate-800"
+                                    onClick={() => handleUseProcessingRule(rule)}
+                                  >
+                                    <span className="block truncate">{rule.name}</span>
+                                    <span className="mt-0.5 block text-[11px] font-medium text-slate-500">
+                                      {t(locale, `${rule.columns.length} 列`, `${rule.columns.length} columns`)}
+                                    </span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded-md bg-blue-600 px-2 py-1 text-[11px] font-semibold text-white"
+                                    onClick={() => handleUseProcessingRule(rule)}
+                                  >
+                                    {t(locale, '使用', 'Use')}
+                                  </button>
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                  <button
+                                    type="button"
+                                    className="rounded-md border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600"
+                                    onClick={() => void handleRenameProcessingRule(rule)}
+                                    disabled={!selectedTemplate || busy}
+                                  >
+                                    {t(locale, '重命名', 'Rename')}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded-md border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600"
+                                    onClick={() => void handleDuplicateProcessingRule(rule)}
+                                    disabled={!selectedTemplate || busy}
+                                  >
+                                    {t(locale, '复制', 'Copy')}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded-md border border-red-200 px-2 py-1 text-[11px] font-semibold text-red-600"
+                                    onClick={() => void handleDeleteProcessingRule(rule)}
+                                    disabled={!selectedTemplate || busy}
+                                  >
+                                    {t(locale, '删除', 'Delete')}
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="px-3 py-4 text-xs text-slate-500">
+                            {selectedTemplate
+                              ? t(locale, '还没有保存的规则。先编辑右侧规则，再另存为新规则。', 'No saved rules yet. Edit the rule on the right, then save it as a new rule.')
+                              : t(locale, '未选择 OCR 预设时只能临时编辑规则，不能保存规则库。', 'Without an OCR preset, rules can be edited temporarily but cannot be saved.')}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="rounded-md border border-slate-200 bg-white">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
+                          <span className="text-xs font-semibold text-slate-600">
+                            {selectedProcessingRule
+                              ? t(locale, `编辑中：${selectedProcessingRule.name}`, `Editing: ${selectedProcessingRule.name}`)
+                              : t(locale, '当前编辑规则', 'Current editor rule')}
+                          </span>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700"
+                              onClick={handleSuggestProcessingTemplate}
+                            >
+                              {t(locale, '补全建议', 'Suggest')}
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700"
+                              onClick={addProcessingColumn}
+                            >
+                              {t(locale, '新增列', 'Add column')}
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 disabled:text-slate-300"
+                              onClick={() => void handleOverwriteProcessingRule()}
+                              disabled={!selectedTemplate || processingTemplate.columns.length === 0 || busy}
+                            >
+                              {selectedProcessingRule ? t(locale, '覆盖保存', 'Overwrite') : t(locale, '另存规则', 'Save as')}
+                            </button>
+                          </div>
+                        </div>
+
+                        {processingTemplate.columns.length > 0 ? (
+                          <div className="max-h-52 overflow-auto">
+                            <table className="w-full min-w-[760px] border-collapse text-xs">
+                              <thead className="sticky top-0 bg-slate-50 text-left uppercase text-slate-500">
+                                <tr>
+                                  <th className="px-2 py-1">{t(locale, '输出列', 'Output column')}</th>
+                                  <th className="px-2 py-1">{t(locale, '类型', 'Type')}</th>
+                                  <th className="px-2 py-1">{t(locale, '来源字段 / 通配来源', 'Source / pattern')}</th>
+                                  <th className="px-2 py-1">{t(locale, '操作', 'Action')}</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {processingTemplate.columns.map((column) => (
+                                  <tr key={column.id} className="border-t border-slate-200">
+                                    <td className="px-2 py-1">
+                                      <input
+                                        className="w-full min-w-[150px] rounded-md border border-slate-200 bg-white px-2 py-1"
+                                        value={column.outputColumn}
+                                        onChange={(event) => updateProcessingColumn(column.id, { outputColumn: event.target.value })}
+                                      />
+                                    </td>
+                                    <td className="px-2 py-1">
+                                      <select
+                                        className="w-full min-w-[120px] rounded-md border border-slate-200 bg-white px-2 py-1"
+                                        value={column.mode}
+                                        onChange={(event) => updateProcessingColumn(column.id, { mode: event.target.value === 'detail' ? 'detail' : 'shared' })}
+                                      >
+                                        <option value="shared">{t(locale, '公共字段', 'Shared')}</option>
+                                        <option value="detail">{t(locale, '明细字段', 'Detail')}</option>
+                                      </select>
+                                    </td>
+                                    <td className="px-2 py-1">
+                                      <input
+                                        className="w-full min-w-[220px] rounded-md border border-slate-200 bg-white px-2 py-1"
+                                        list="ocr-processing-source-options"
+                                        value={column.sourcePattern}
+                                        placeholder={column.mode === 'detail' ? 'product_*' : 'bl_pl_number'}
+                                        onChange={(event) => updateProcessingColumn(column.id, { sourcePattern: event.target.value })}
+                                      />
+                                    </td>
+                                    <td className="px-2 py-1">
+                                      <button
+                                        type="button"
+                                        className="rounded-md border border-red-200 px-2 py-1 font-semibold text-red-600"
+                                        onClick={() => removeProcessingColumn(column.id)}
+                                      >
+                                        {t(locale, '删除', 'Delete')}
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                            <datalist id="ocr-processing-source-options">
+                              {sourceOptionsForProcessing().map((option) => (
+                                <option key={option} value={option} />
+                              ))}
+                            </datalist>
+                          </div>
+                        ) : (
+                          <p className="px-3 py-4 text-xs text-slate-500">
+                            {t(locale, '当前编辑器还没有处理规则。可以补全建议，或手动新增输出列。', 'The editor has no processing rules yet. Suggest rules or add output columns manually.')}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
+              {resultViewMode === 'processed' ? (
+                <table className="w-full min-w-[880px] border-collapse text-sm">
+                  <thead className="sticky top-0 bg-slate-50 text-xs uppercase text-slate-500">
+                    <tr>
+                      {processedHeaders.map((header) => (
+                        <th key={header} className="border-b border-slate-200 px-3 py-2 text-left">
+                          {header}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {processedRows.length === 0 ? (
+                      <tr>
+                        <td className="px-3 py-8 text-center text-slate-500" colSpan={Math.max(processedHeaders.length, 1)}>
+                          {t(locale, '暂无处理结果', 'No processed results yet')}
+                        </td>
+                      </tr>
+                    ) : null}
+
+                    {visibleProcessedRows.map((row, rowIndex) => (
+                      <tr key={`${String(row[processedHeaders[0]] ?? 'processed')}-${resultStartIndex + rowIndex}`} className="border-b border-slate-100">
+                        {processedHeaders.map((header) => (
+                          <td key={header} className="max-w-[240px] truncate px-3 py-2 text-slate-700">
+                            {String(row[header] ?? '-')}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : resultViewMode === 'batch' ? (
                 <table className="w-full min-w-[880px] border-collapse text-sm">
                   <thead className="sticky top-0 bg-slate-50 text-xs uppercase text-slate-500">
                     <tr>

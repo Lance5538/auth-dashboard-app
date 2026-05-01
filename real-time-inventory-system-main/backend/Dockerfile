@@ -2,6 +2,9 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+ARG APP_VERSION=local
+ENV APP_VERSION=${APP_VERSION}
+
 COPY package*.json ./
 COPY prisma ./prisma
 
@@ -12,7 +15,9 @@ COPY tsconfig.json ./tsconfig.json
 COPY src ./src
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 
-RUN chmod +x ./docker-entrypoint.sh && npm run build
+RUN date -u +"%Y-%m-%dT%H:%M:%SZ" > ./build-time.txt \
+  && chmod +x ./docker-entrypoint.sh \
+  && npm run build
 
 EXPOSE 4000
 
